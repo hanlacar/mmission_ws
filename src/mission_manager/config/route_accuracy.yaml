@@ -1,0 +1,18 @@
+route_accuracy_monitor:
+  ros__parameters:
+    # gps_route_follower에 전달하는 것과 동일한 CSV/YAML pair를 사용합니다.
+    route_csv: ""
+    fix_topic: /fix
+    accuracy_tolerance_m: 0.30
+    max_route_match_distance_m: 3.0
+    gps_timeout_sec: 1.0
+    gps_stability_topic: /gps_stability
+    # 최신 t870_mcu bridge 계약. raw count는 보정 없이도 기록만 합니다.
+    encoder_topic: /mcu/encoder
+    encoder_distance_topic: /mcu/distance_m
+    odom_topic: /odom
+    # t870_mcu의 counts_per_meter와 함께 실측값으로 설정합니다. 0은 UNAVAILABLE입니다.
+    encoder_counts_per_meter: 0.0
+    save_csv: true
+    output_csv: /home/qor/mmission_ws/logs/route_accuracy.csv
+    csv_flush_every: 20

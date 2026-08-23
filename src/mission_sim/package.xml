@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>mission_sim</name>
+  <version>0.1.0</version>
+  <description>가상 센서+차량 시뮬레이터. 하드웨어 없이 mission_manager를 실차와 동일 토픽 구조로 폐루프 검증.</description>
+  <maintainer email="you@example.com">team</maintainer>
+  <license>MIT</license>
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>mission_manager</depend>
+  <depend>nav_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>tf2_ros</depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

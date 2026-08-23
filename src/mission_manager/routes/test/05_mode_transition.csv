@@ -1,0 +1,5 @@
+index,latitude,longitude,x_m,y_m,direction,mode,drive_level
+0,37.5,127.0,0,0,1,NORMAL,2.00
+1,37.5,127.0000113,1,0,1,NORMAL,2.00
+2,37.5,127.0000226,2,0,1,SLOPE,1.00
+3,37.5,127.0000339,3,0,1,PARALLEL_PARK,1.00

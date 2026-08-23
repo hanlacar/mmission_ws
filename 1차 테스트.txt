@@ -1,0 +1,147 @@
+빌드
+
+cd ~/mmission_ws
+source /opt/ros/jazzy/setup.bash
+
+colcon build --symlink-install
+source install/setup.bash
+
+
+
+gps 실행
+
+cd ~/mmission_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+ros2 run rtk_gnss rtk_node
+
+
+
+
+
+
+
+교차로 직진
+
+
+
+cd ~/mmission_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+ros2 launch mission_manager gps_route_record.launch.py \
+  route_csv:=/home/qor/mmission_ws/routes/intersection_straight.csv
+  
+  
+  
+  
+  
+행동
+차량을 교차로 직진 시작 위치에 놓습니다.
+recorder 실행 후 직접 차량을 운전합니다.
+교차로 진입 전부터 기록합니다.
+교차로를 직진합니다.
+교차로를 완전히 빠져나간 뒤 조금 더 직진합니다.
+차량을 세웁니다.
+터미널 3에서 Ctrl+C.
+
+
+ls -lh ~/mmission_ws/routes/intersection_straight.*
+
+
+
+  
+  
+좌회전
+  
+ros2 launch mission_manager gps_route_record.launch.py \
+  route_csv:=/home/qor/mmission_ws/routes/intersection_left.csv
+  
+  
+  
+  출발
+→ 교차로 진입
+→ 좌회전
+→ 교차로 완전히 탈출
+→ 조금 직진
+→ 정지
+→ Ctrl+C
+
+ls -lh ~/mmission_ws/routes/intersection_left.*
+
+
+
+
+
+
+우회전
+
+ros2 launch mission_manager gps_route_record.launch.py \
+  route_csv:=/home/qor/mmission_ws/routes/intersection_right.csv
+
+
+
+
+
+출발
+→ 교차로 진입
+→ 우회전
+→ 교차로 완전히 탈출
+→ 조금 직진
+→ 정지
+→ Ctrl+C
+
+
+ls -lh ~/mmission_ws/routes/intersection_right.*
+
+
+
+
+
+
+주차경로 저장
+
+
+# T주차
+ros2 launch mission_manager gps_route_record.launch.py \
+  route_csv:=/home/qor/mmission_ws/routes/t_parking_forward_reverse.csv
+  
+  
+# 평행주차
+ros2 launch mission_manager gps_route_record.launch.py \
+  route_csv:=/home/qor/mmission_ws/routes/parallel_parking_forward_reverse.csv
+  
+  
+  
+후진으로 변경
+
+ros2 param set /gps_route_recorder record_direction reverse
+
+
+
+
+다시 전진
+
+ros2 param set /gps_route_recorder record_direction forward
+
+
+
+ls -lh ~/mmission_ws/routes/t_parking_forward_reverse.*
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,24 @@
+mission_sim:
+  ros__parameters:
+    rate_hz: 20.0
+    origin_lat: 35.5384
+    origin_lon: 129.3114
+    wheelbase_m: 0.30
+    accel_gain: 2.0
+
+    # 시작 위치/방향
+    start_x: 0.0
+    start_y: 0.0
+    start_heading_deg: 0.0
+
+    encoder_m_per_tick: 0.01     # 시뮬레이터 내부값 (1 tick = 1cm)
+    gps_noise_std_m: 0.02        # RTK급 저잡음
+
+    # 재밍 존: "cx,cy,r" (이 원 안에서 GPS 死). 작년 재밍 상황 재현.
+    jam_zones:
+      - "15.0,0.0,4.0"           # 코스 중반에 재밍 구간
+      - "40.0,8.0,3.0"           # 두 번째 재밍
+
+    # 경사 존: "cx,cy,r" (이 원 안에서 오르막 pitch)
+    slope_zones:
+      - "28.0,5.0,3.0"

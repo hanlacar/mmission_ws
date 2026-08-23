@@ -1,0 +1,55 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: Reference Path
+      Topic: {Value: /gps_nav/reference_path}
+      Color: 80; 160; 255
+      Line Style: Lines
+      Line Width: 0.03
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: Traveled Path
+      Topic: {Value: /gps_nav/traveled_path}
+      Color: 255; 255; 255
+      Line Style: Lines
+      Line Width: 0.05
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Forward Reverse Segments
+      Marker Topic: {Value: /gps_nav/direction_segments}
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Vehicle
+      Marker Topic: {Value: /gps_nav/vehicle_marker}
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Lookahead Target
+      Marker Topic: {Value: /gps_nav/lookahead_marker}
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Status
+      Marker Topic: {Value: /gps_nav/status_marker}
+  Enabled: true
+  Global Options:
+    Background Color: 30; 30; 30
+    Fixed Frame: map
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Angle: 0
+      Scale: 25
+      Target Frame: map
+Window Geometry:
+  Height: 900
+  Width: 1400

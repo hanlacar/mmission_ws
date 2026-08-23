@@ -1,0 +1,4 @@
+index,latitude,longitude,x_m,y_m,direction,mode,drive_level
+0,37.5,127.0,0,0,-1,T_PARK,1.00
+1,37.5,126.9999887,-1,0,-1,T_PARK,2.00
+2,37.5,126.9999774,-2,0,-1,T_PARK,1.00

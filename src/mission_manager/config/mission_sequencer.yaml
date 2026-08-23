@@ -1,0 +1,35 @@
+# mission_sequencer 설정 예시 — 5구간 코스.
+#   출발+경사로 ─교차로─ S코스 ─교차로─ T주차 ─교차로─ 가속+평행주차 ─교차로─ 출차
+#
+# 각 구간의 exit_dir / exit_maneuver 는 '그 구간이 끝날 때 통과할 교차로'의
+# 진입 방위(N/E/S/W)와 기동(straight/left/right)이다. 실제 코스에 맞게 수정할 것.
+# 마지막 구간(출차)은 뒤에 교차로가 없으면 비워둔다.
+#
+# 실행:
+#   ros2 run mission_manager mission_sequencer --ros-args --params-file <이 파일>
+mission_sequencer:
+  ros__parameters:
+    auto_advance: true          # /intersection/complete 상승엣지마다 자동 다음 구간
+    publish_commands: true      # 각 구간 진입 시 교차로 방위/기동 자동 발행
+
+    segment_names:
+      - "SEG1_START_SLOPE"
+      - "SEG2_SCOURSE"
+      - "SEG3_TPARK"
+      - "SEG4_ACCEL_PARALLEL"
+      - "SEG5_EXIT"
+
+    SEG1_START_SLOPE.exit_dir: "N"
+    SEG1_START_SLOPE.exit_maneuver: "straight"
+
+    SEG2_SCOURSE.exit_dir: "N"
+    SEG2_SCOURSE.exit_maneuver: "left"
+
+    SEG3_TPARK.exit_dir: "N"
+    SEG3_TPARK.exit_maneuver: "right"
+
+    SEG4_ACCEL_PARALLEL.exit_dir: "N"
+    SEG4_ACCEL_PARALLEL.exit_maneuver: "straight"
+
+    SEG5_EXIT.exit_dir: ""
+    SEG5_EXIT.exit_maneuver: ""

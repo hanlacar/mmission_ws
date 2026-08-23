@@ -1,0 +1,245 @@
+---------------------------------------터미널 1 — GPS 실행----------------------------------------
+cd ~/mmission_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+export ROS_DOMAIN_ID=88
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+ros2 run rtk_gnss rtk_node
+
+
+
+---------------------------------------터미널 2 — 직진 모범경로 저장----------------------------------------
+cd ~/mmission_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+export ROS_DOMAIN_ID=88
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+ros2 run mission_manager route_recorder \
+  --ros-args \
+  --params-file ~/mmission_ws/src/mission_manager/config/gps_route.yaml \
+  -p out_csv:=/home/qor/mmission_ws/routes/01_forward.csv \
+  -p record_direction:=forward \
+  -p record_mode:=NORMAL \
+  -p record_drive_level:=2.0
+  
+  
+  
+터미널 2 — 후진 모범경로 저장
+cd ~/mmission_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+export ROS_DOMAIN_ID=88
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+ros2 run mission_manager route_recorder \
+  --ros-args \
+  --params-file ~/mmission_ws/src/mission_manager/config/gps_route.yaml \
+  -p out_csv:=/home/qor/mmission_ws/routes/02_reverse.csv \
+  -p record_direction:=reverse \
+  -p record_mode:=NORMAL \
+  -p record_drive_level:=2.0
+  
+  
+  
+터미널 2 — 교차로 직진 경로 저장
+cd ~/mmission_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+export ROS_DOMAIN_ID=88
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+ros2 run mission_manager route_recorder \
+  --ros-args \
+  --params-file ~/mmission_ws/src/mission_manager/config/gps_route.yaml \
+  -p out_csv:=/home/qor/mmission_ws/routes/03_intersection_straight.csv \
+  -p record_direction:=forward \
+  -p record_mode:=INTERSECTION \
+  -p record_drive_level:=2.0
+  
+  
+  
+터미널 2 — 교차로 좌회전 경로 저장
+cd ~/mmission_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+export ROS_DOMAIN_ID=88
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+ros2 run mission_manager route_recorder \
+  --ros-args \
+  --params-file ~/mmission_ws/src/mission_manager/config/gps_route.yaml \
+  -p out_csv:=/home/qor/mmission_ws/routes/03_intersection_left.csv \
+  -p record_direction:=forward \
+  -p record_mode:=INTERSECTION \
+  -p record_drive_level:=2.0
+  
+  
+  
+터미널 2 — 교차로 우회전 경로 저장
+cd ~/mmission_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+export ROS_DOMAIN_ID=88
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+ros2 run mission_manager route_recorder \
+  --ros-args \
+  --params-file ~/mmission_ws/src/mission_manager/config/gps_route.yaml \
+  -p out_csv:=/home/qor/mmission_ws/routes/03_intersection_right.csv \
+  -p record_direction:=forward \
+  -p record_mode:=INTERSECTION \
+  -p record_drive_level:=2.0
+  
+  
+  
+한 번의 녹화 중 NORMAL → INTERSECTION → NORMAL 변경
+cd ~/mmission_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+export ROS_DOMAIN_ID=88
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+ros2 run mission_manager route_recorder \
+  --ros-args \
+  --params-file ~/mmission_ws/src/mission_manager/config/gps_route.yaml \
+  -p out_csv:=/home/qor/mmission_ws/routes/full_record.csv \
+  -p record_direction:=forward \
+  -p record_mode:=NORMAL \
+  -p record_drive_level:=2.0
+  
+  
+---------------------------------------터미널 3 — 교차로 진입 시----------------------------------------
+터미널 3 — 교차로 통과 후
+ros2 param set /gps_route_recorder record_mode NORMAL
+
+
+
+한 번의 녹화 중 전진 → 후진 변경
+ros2 param set /gps_route_recorder record_direction reverse
+ros2 param set /gps_route_recorder record_direction forward
+
+
+
+한 번의 녹화 중 MODE 변경
+ros2 param set /gps_route_recorder record_mode NORMAL
+ros2 param set /gps_route_recorder record_mode INTERSECTION
+ros2 param set /gps_route_recorder record_mode S_COURSE
+ros2 param set /gps_route_recorder record_mode SLOPE
+ros2 param set /gps_route_recorder record_mode T_PARK
+ros2 param set /gps_route_recorder record_mode PARALLEL_PARK
+
+
+
+
+여러 CSV를 하나의 CSV로 이어붙이기
+cd ~/mmission_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+export ROS_DOMAIN_ID=88
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+ros2 run mission_manager route_merge \
+  --out /home/qor/mmission_ws/routes/full_course.csv \
+  /home/qor/mmission_ws/routes/01_forward.csv \
+  /home/qor/mmission_ws/routes/03_intersection_straight.csv \
+  /home/qor/mmission_ws/routes/02_reverse.csv
+  
+  
+  
+직진 → 교차로 좌회전 → 직진 경로 하나로 제작
+ros2 run mission_manager route_merge \
+  --out /home/qor/mmission_ws/routes/full_left_course.csv \
+  /home/qor/mmission_ws/routes/01_before_intersection.csv \
+  /home/qor/mmission_ws/routes/03_intersection_left.csv \
+  /home/qor/mmission_ws/routes/04_after_intersection.csv
+  
+  
+  
+기존 CSV에서 특정 index 구간을 INTERSECTION으로 변경
+cd ~/mmission_ws
+
+python3 - <<'PY'
+import csv
+
+path = "/home/qor/mmission_ws/routes/full_course.csv"
+start_index = 100
+end_index = 180
+
+with open(path, newline="", encoding="utf-8") as f:
+    rows = list(csv.DictReader(f))
+    fields = rows[0].keys()
+
+for row in rows:
+    i = int(row["index"])
+    if start_index <= i <= end_index:
+        row["mode"] = "INTERSECTION"
+
+with open(path, "w", newline="", encoding="utf-8") as f:
+    w = csv.DictWriter(f, fieldnames=fields)
+    w.writeheader()
+    w.writerows(rows)
+PY
+
+
+
+기존 CSV 특정 구간을 NORMAL로 변경
+cd ~/mmission_ws
+
+python3 - <<'PY'
+import csv
+
+path = "/home/qor/mmission_ws/routes/full_course.csv"
+start_index = 181
+end_index = 250
+
+with open(path, newline="", encoding="utf-8") as f:
+    rows = list(csv.DictReader(f))
+    fields = rows[0].keys()
+
+for row in rows:
+    i = int(row["index"])
+    if start_index <= i <= end_index:
+        row["mode"] = "NORMAL"
+
+with open(path, "w", newline="", encoding="utf-8") as f:
+    w = csv.DictWriter(f, fieldnames=fields)
+    w.writeheader()
+    w.writerows(rows)
+PY
+
+
+
+기존 CSV 특정 구간을 후진으로 변경
+cd ~/mmission_ws
+
+python3 - <<'PY'
+import csv
+
+path = "/home/qor/mmission_ws/routes/full_course.csv"
+start_index = 300
+end_index = 400
+
+with open(path, newline="", encoding="utf-8") as f:
+    rows = list(csv.DictReader(f))
+    fields = rows[0].keys()
+
+for row in rows:
+    i = int(row["index"])
+    if start_index <= i <= end_index:
+        row["direction"] = "-1"
+
+with open(path, "w", newline="", encoding="utf-8") as f:
+    w = csv.DictWriter(f, fieldnames=fields)
+    w.writeheader()
+    w.writerows(rows)
+PY
+
+
+
+
+
+경로 편집기 실행
+cd ~/mmission_ws
+xdg-open tools/route_editor.html

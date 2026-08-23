@@ -1,0 +1,111 @@
+gps_route_follower:
+  ros__parameters:
+    # 기록·검증된 CSV 경로와 같은 이름의 YAML metadata를 사용합니다.
+    route_path: ""
+    # 실제 RTK와 fake GPS가 공유하는 입력 토픽입니다.
+    gps_fix_topic: /fix
+    gps_velocity_topic: /vel
+    # imu_manager의 현재 실제 계약. yaw-rate 토픽은 없으므로 비워 둡니다.
+    imu_yaw_topic: /imu/relative_yaw_deg
+    imu_yaw_rate_topic: ""
+    imu_valid_topic: /imu/valid
+    # GPS 주행 명령 규약: 양수는 전진, 음수는 후진이다.
+    # 절댓값 1.00=감속, 2.00=정속, 3.00=가속이다.
+    # 향후 MCU 또는 최종 통합 WS 규약이 변경될 경우 이 설정/mapper만 수정한다.
+    gps_drive_topic: /gps_drive
+    # GPS 조향 규약: 양수는 실제 앞바퀴 좌회전, 음수는 우회전입니다.
+    gps_wheel_topic: /gps_wheel
+    # 경로의 위치별 mode만 발행하며 /vehicle_mode는 발행하지 않습니다.
+    drive_mode_topic: /drive_mode
+    status_topic: /gps_navigation/status
+    control_rate_hz: 20.0
+    # Pure Pursuit 계산에 사용하는 차량 축거입니다.
+    # 실제 차량 앞/뒤 차축 중심 사이 거리를 측정한 후 정확한 값으로 수정합니다.
+    wheelbase_m: 0.30
+    # 실제 앞바퀴 최대 조향각(도)입니다.
+    max_steering_deg: 27.0
+    # 조향 부호입니다. 하드웨어 좌/우가 반대면 -1로 변경합니다.
+    steering_sign: 1
+    # drive level별 전진 lookahead와 후진 전용 lookahead입니다.
+    lookahead_slow_m: 0.70
+    lookahead_normal_m: 1.00
+    lookahead_fast_m: 1.40
+    lookahead_reverse_m: 0.65
+    # GPS와 IMU 메시지가 이 시간보다 오래되면 안전 정지합니다.
+    gps_timeout_sec: 1.0
+    imu_timeout_sec: 0.20
+    # 실제 yaw rate로 설명할 수 없는 상대 yaw 점프를 IMU reset 후보로 봅니다.
+    imu_reset_jump_threshold_deg: 35.0
+    imu_reset_yaw_rate_margin_deg: 8.0
+    # 시작 시 경로 tangent와 anchored body heading 허용 오차입니다.
+    start_heading_tolerance_deg: 70.0
+    # nearest는 거리·tangent·direction을 함께 평가하고 route_start는 첫 segment만 허용합니다.
+    start_policy: nearest
+    start_accept_radius_m: 2.0
+    # 경로 이탈 경고에서는 감속하고, 정지 임계 초과가 연속되면 정지합니다.
+    off_route_warn_m: 1.0
+    off_route_stop_m: 2.0
+    off_route_stop_count: 3
+    off_route_recover_count: 5
+    # 방향 변경점 접근거리, 도달거리와 완전 정지 유지시간입니다.
+    cusp_approach_m: 1.20
+    cusp_tolerance_m: 0.35
+    direction_change_stop_s: 1.0
+    # 최종 goal 감속/도달 거리입니다. 도달 상태는 latch됩니다.
+    goal_slowdown_m: 1.0
+    goal_tolerance_m: 0.30
+    # 큰 조향에서는 route drive level을 감속 단계로 제한합니다.
+    steering_slowdown_deg: 18.0
+    # GPS 품질, jump 안전 기준입니다.
+    max_gps_covariance_m2: 9.0
+    gps_jump_m: 5.0
+
+    # ---- GPS 안테나 평면 오프셋 (단위: cm) ----
+    # 차량 기준점(뒷축 중심)에서 본 안테나 위치를 줄자로 재서 입력.
+    #   forward: 앞=+, 뒤=-   /   lateral: 왼쪽=+, 오른쪽=-
+    # 0으로 두면 보정 안 함(안테나=차량으로 간주).
+    # 예) 안테나가 뒷축보다 40cm 앞, 정중앙 → forward: 40.0, lateral: 0.0
+    gps_antenna_forward_cm: 0.0
+    gps_antenna_lateral_cm: 0.0
+
+    # ---- GPS 안정성(0~100%) 발행 ----
+    # 재밍/멀티패스로 값이 튀거나 끊기면 낮아진다. MCU가 이 값을 보고 판단.
+    gps_stability_topic: /gps_stability
+    gps_stability_good_cov_m2: 0.05   # 이 이하 공분산이면 만점(RTK Fixed 수준)
+
+    # ---- recorded reference-route intersection ----
+    intersection.enabled: true
+    intersection.control_mode: reference_route
+    intersection.dir_select_mode: manual
+    intersection.active_dir: "N"
+    intersection.route_dir: ""
+    intersection.route_alignment_mode: absolute
+    intersection.drive_level: 2.0
+    # NOT VERIFIED — RTK 실차 횡오차와 차량 기하를 측정한 뒤 조정할 것.
+    intersection.start_accept_radius_m: 1.0
+    intersection.start_heading_tolerance_deg: 30.0
+    intersection.off_route_warn_m: 0.20
+    intersection.off_route_stop_m: 0.35
+    intersection.off_route_stop_count: 3
+    intersection.off_route_recover_count: 5
+    intersection.heading_warn_deg: 10.0
+    intersection.heading_stop_deg: 20.0
+    intersection.heading_stop_count: 3
+    intersection.heading_recover_count: 5
+    intersection.steering_slowdown_deg: 18.0
+    intersection.goal_tolerance_m: 0.35
+    intersection.goal_heading_tolerance_deg: 10.0
+    intersection.complete_confirm_count: 5
+
+gps_route_recorder:
+  ros__parameters:
+    # 실제 모범경로 출력 파일입니다. 기존 routes/*.csv를 덮어쓰지 마십시오.
+    out_csv: ""
+    fix_topic: /fix
+    min_spacing_m: 0.15
+    # 기록 중 ros2 param set으로 forward/reverse를 변경하면 waypoint를 강제 기록합니다.
+    record_direction: forward
+    # 위치별 mode이며 변경 지점은 강제 기록됩니다.
+    record_mode: INTERSECTION
+    # GPS 주행 단계는 1.00/2.00/3.00 중 하나입니다.
+    record_drive_level: 2.0

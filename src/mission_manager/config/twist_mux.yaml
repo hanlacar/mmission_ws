@@ -1,0 +1,22 @@
+# twist_mux 설정 — GPS 평상주행 vs 재밍시 nav2 전환
+#
+# 원리: nav2 는 goal 이 있을 때만 /cmd_vel_nav2 로 명령을 낸다.
+#  - 평상시: nav2 토픽 조용 → 우선순위 낮은 GPS(/cmd_vel_gps)가 통과
+#  - 재밍시: mission_manager 가 /nav2_route/enable=True → nav2 재생 →
+#            /cmd_vel_nav2 에 명령 흐름 → 우선순위 높아 nav2 가 통과
+#
+# timeout: 이 시간(s) 동안 해당 토픽에 메시지 없으면 그 입력은 무효로 간주.
+#          nav2 가 조용해지면 자동으로 GPS 로 복귀하게 하는 핵심 값.
+
+twist_mux:
+  ros__parameters:
+    use_stamped: false            # 일반 Twist 사용(시뮬 AckermannSteering·cmd_bridge 규약)
+    topics:
+      gps_drive:
+        topic:    cmd_vel_gps      # cmd_bridge(GPS 추종)가 내는 명령
+        timeout:  0.5
+        priority: 10               # 낮음(기본 주행)
+      nav2_drive:
+        topic:    cmd_vel_nav2     # nav2 가 내는 명령(재밍 시에만 흐름)
+        timeout:  0.5
+        priority: 100              # 높음(재밍 시 GPS 를 이김)

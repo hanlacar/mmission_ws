@@ -1,0 +1,5 @@
+format_version: 1
+origin_lat: 37.5
+origin_lon: 127.0
+loop: true
+created_at: test-only

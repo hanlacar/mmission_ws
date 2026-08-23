@@ -1,0 +1,154 @@
+========================================
+  한라대 자율주행 프로젝트 - 실행 방법 정리
+========================================
+
+■ 공통 준비 (터미널 새로 열 때마다)
+------------------------------------------
+  cd ~/mission_ws
+  source install/setup.bash
+
+■ 빌드 (코드 수정 후)
+------------------------------------------
+  cd ~/mission_ws
+  colcon build --symlink-install
+  source install/setup.bash
+
+  # 특정 패키지만 빠르게
+  colcon build --symlink-install --packages-select mission_manager
+
+
+==========================================
+  1. GPS 실물 (RTK + NTRIP)  ★실차 핵심★
+==========================================
+  # F9P USB 연결 확인
+  ls -l /dev/ttyACM*          # /dev/ttyACM0 있어야 함
+                              # 없으면 USB 뽑았다 다시 꽂기
+
+  # 실행
+  ros2 run rtk_gnss rtk_node
+
+  # 확인 (다른 터미널)
+  ros2 topic echo /fix        # 위경도 (RTK Fixed면 cm급)
+  ros2 topic echo /vel        # 속도
+
+  ※ 실외 + 안테나 하늘 방향이어야 위성 잡힘
+  ※ 로그에 "Fix:4 (RTK FIXED)" 뜨면 성공 (cm급)
+  ※ NTRIP 계정은 rtk_node.py 안에 하드코딩됨
+     (www.gnssdata.or.kr:2101, WSJG-RTCM32)
+
+
+==========================================
+  2. 두뇌 (mission_manager)
+==========================================
+  ros2 run mission_manager mission_manager
+
+  # 확인 (다른 터미널)
+  ros2 topic echo /estimated_pose    # 추정 위치
+  ros2 topic echo /drive_state       # 주행상태
+                                     # (GPS_FOLLOW/DEAD_RECKON/CAMERA)
+
+  ※ GPS(rtk_node)와 함께 띄우면 origin 자동설정됨
+  ※ 경로·미션·센서 없어도 안 죽음 (기본값으로 돌아감)
+
+
+==========================================
+  3. 하드웨어 드라이버 골격 (실물 통신부 TODO)
+==========================================
+  # 엔코더
+  ros2 run mission_manager encoder_driver
+  ros2 topic echo /encoder/ticks
+
+  # IMU (RealSense 필요)
+  ros2 run mission_manager imu_driver
+  ros2 topic echo /imu/relative_yaw_deg
+  ros2 topic echo /imu/pitch_deg
+
+  # 카메라 (RealSense 필요)
+  ros2 run mission_manager camera_driver
+  ros2 topic echo /parking_slot
+  ros2 topic echo /camera/target_speed_mps
+  ros2 topic echo /camera/target_steering_deg
+
+  # 모터 (MCU 시리얼 TODO)
+  ros2 run mission_manager motor_driver
+
+  ※ RealSense IMU 쓰려면 먼저:
+    ros2 launch realsense2_camera rs_launch.py \
+        enable_accel:=true enable_gyro:=true unite_imu_method:=1
+    ros2 topic list | grep imu     # 실제 토픽명 확인
+
+
+==========================================
+  4. T자 주차 Gazebo 시뮬 (경로 저장·추종)
+==========================================
+
+  --- 사전: Gazebo 크래시 방지 환경변수 ---
+  # (터미널1에서 시뮬 켜기 전에)
+  pkill -9 -f gz; pkill -9 -f gazebo; pkill -9 -f ros_gz
+  unset LIBGL_ALWAYS_SOFTWARE
+  export GALLIUM_DRIVER=llvmpipe
+  export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+  export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
+
+  ※ LIBGL_ALWAYS_SOFTWARE=1 은 절대 쓰지 말 것 (세그폴트)
+
+  --- 터미널1: 시뮬 실행 ---
+  cd ~/t_parking_ws && source install/setup.bash
+  ros2 launch t_parking_sim sim.launch.py
+  # Gazebo 창 뜨면 재생(▶) 버튼 눌러 시뮬 돌리기
+  # 차(turtle_car) 스폰 확인, 리셋(↻)으로 시작점 이동
+
+  --- 터미널2: teleop (수동 주행) ---
+  source ~/mission_ws/install/setup.bash
+  ros2 run teleop_twist_keyboard teleop_twist_keyboard
+  # i=전진, ,=후진, j=좌회전, l=우회전, k=정지
+  # w/x=직진속도, e/c=회전속도
+
+  --- 경로 저장 ---
+  # (터미널3) teleop으로 코스 몰면서 저장
+  source ~/mission_ws/install/setup.bash
+  ros2 run mission_manager path_recorder_sim
+  # 전진→(주차앞)→후진주차→전진복귀 주행
+  # 끝낼 지점에서 정지 후 Ctrl+C → 저장
+  # 저장 위치: ~/mission_ws/routes/route.csv (x,y,dir)
+
+  # 저장 확인
+  wc -l ~/mission_ws/routes/route.csv
+  tail ~/mission_ws/routes/route.csv   # dir에 1/-1 섞여있어야 함
+
+  --- 경로 추종 ---
+  # 차를 시작점으로 되돌리고(리셋 ↻), teleop 끄고(Ctrl+C)
+  source ~/mission_ws/install/setup.bash
+  ros2 run mission_manager path_follower_sim
+  # 전진→후진→전진 자동 전환하며 경로 따라감
+
+  # 출력 토픽 확인 (다른 터미널)
+  ros2 topic echo /t_wheel      # 조향각 (정수, 예: 21, -21)
+  ros2 topic echo /t_drive      # 구동값 (전진 0.5 / 후진 -0.5)
+
+  ※ teleop과 follower 동시에 켜면 충돌 (하나만)
+  ※ Gazebo 일시정지면 차 안 움직임 (재생 확인)
+
+
+==========================================
+  워크스페이스 구조
+==========================================
+  ~/mission_ws/src/
+    ├─ mission_manager/   (두뇌 + 드라이버 골격 + 시뮬 노드)
+    ├─ mission_sim/
+    └─ rtk_gnss/          (GPS 실물 드라이버)
+
+  ~/mission_ws/routes/    (경로 CSV 저장 위치)
+
+  ~/t_parking_ws/         (T자 주차 Gazebo 맵, 별도)
+
+
+==========================================
+  자주 겪는 문제
+==========================================
+  · /dev/ttyACM0 없음 → F9P USB 재연결
+  · GPS Fix:0 → 실외 아님/안테나 하늘 안 봄
+  · Gazebo 세그폴트 → 위 환경변수 (llvmpipe) 사용
+  · 차 안 움직임 → Gazebo 재생(▶) 눌렀는지 확인
+  · teleop 후진 안됨 → , (쉼표) 키 사용
+  · 빌드 후 이상 → rm -rf build install log 후 재빌드
