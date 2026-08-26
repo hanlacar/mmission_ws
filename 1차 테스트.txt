@@ -133,7 +133,13 @@ ros2 param set /gps_route_recorder record_direction forward
 
 
 
+
+
+
+
 ls -lh ~/mmission_ws/routes/t_parking_forward_reverse.*
+
+ls -lh ~/mmission_ws/routes/parallel_parking_forward_reverse.*
 
 
 

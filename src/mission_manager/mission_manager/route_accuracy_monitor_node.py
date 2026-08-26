@@ -42,7 +42,7 @@ class RouteAccuracyMonitor(Node):
             "odom_topic": "/odom",
             "encoder_counts_per_meter": 0.0,
             "save_csv": True,
-            "output_csv": "/home/qor/mmission_ws/logs/route_accuracy.csv",
+            "output_csv": "route_accuracy.csv",
             "csv_flush_every": 20,
         }
         for name, value in defaults.items():

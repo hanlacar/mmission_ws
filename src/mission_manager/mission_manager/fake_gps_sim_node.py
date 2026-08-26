@@ -35,12 +35,12 @@ fake_gps_sim — 실차/시뮬 없이 mission_manager를 폐루프로 돌리는 
 실행 예:
   # 교차로 방위 로직만 검증(재밍 없음)
   ros2 run mission_manager fake_gps_sim --ros-args \
-    -p route_csv:=/home/ww/mission_ws/routes/course.csv \
+    -p route_csv:=~/mmission_ws/routes/course.csv \
     -p jam_after_s:=1000000.0
 
   # 레벨 2: 8초 주행 후 6초 재밍 → 복구
   ros2 run mission_manager fake_gps_sim --ros-args \
-    -p route_csv:=/home/ww/mission_ws/routes/course.csv \
+    -p route_csv:=~/mmission_ws/routes/course.csv \
     -p jam_after_s:=8.0 -p jam_duration_s:=6.0
 """
 import math

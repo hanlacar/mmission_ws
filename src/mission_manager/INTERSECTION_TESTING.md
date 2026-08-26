@@ -9,7 +9,7 @@ Pure Pursuit로 추종하며 `/gps_drive`, `/gps_wheel`을 발행한다. 예전�
 ## 1. 빌드
 
 ```bash
-cd /home/ww/mmission_ws
+cd ~/mmission_ws
 source /opt/ros/jazzy/setup.bash
 colcon build --symlink-install --packages-select mission_manager
 source install/setup.bash
@@ -42,13 +42,13 @@ ros2 topic echo /fix --once
 
 ```bash
 # 터미널 A
-cd /home/ww/mmission_ws && source /opt/ros/jazzy/setup.bash && source install/setup.bash
+cd ~/mmission_ws && source /opt/ros/jazzy/setup.bash && source install/setup.bash
 ros2 launch mission_manager gps_route_follow.launch.py
 ```
 
 ```bash
 # 터미널 B
-cd /home/ww/mmission_ws && source /opt/ros/jazzy/setup.bash && source install/setup.bash
+cd ~/mmission_ws && source /opt/ros/jazzy/setup.bash && source install/setup.bash
 ros2 launch mission_manager mission.launch.py
 ```
 
@@ -82,18 +82,18 @@ ros2 topic info /mcu/mode_code -v
 YAML metadata가 함께 생성된다. 기존 파일을 덮어쓰기 전에 반드시 백업한다.
 
 ```bash
-ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=/home/ww/mmission_ws/src/mission_manager/routes/intersection/N_STRAIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
-ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=/home/ww/mmission_ws/src/mission_manager/routes/intersection/N_LEFT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
-ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=/home/ww/mmission_ws/src/mission_manager/routes/intersection/N_RIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
-ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=/home/ww/mmission_ws/src/mission_manager/routes/intersection/E_STRAIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
-ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=/home/ww/mmission_ws/src/mission_manager/routes/intersection/E_LEFT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
-ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=/home/ww/mmission_ws/src/mission_manager/routes/intersection/E_RIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
-ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=/home/ww/mmission_ws/src/mission_manager/routes/intersection/S_STRAIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
-ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=/home/ww/mmission_ws/src/mission_manager/routes/intersection/S_LEFT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
-ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=/home/ww/mmission_ws/src/mission_manager/routes/intersection/S_RIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
-ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=/home/ww/mmission_ws/src/mission_manager/routes/intersection/W_STRAIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
-ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=/home/ww/mmission_ws/src/mission_manager/routes/intersection/W_LEFT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
-ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=/home/ww/mmission_ws/src/mission_manager/routes/intersection/W_RIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
+ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=~/mmission_ws/src/mission_manager/routes/intersection/N_STRAIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
+ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=~/mmission_ws/src/mission_manager/routes/intersection/N_LEFT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
+ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=~/mmission_ws/src/mission_manager/routes/intersection/N_RIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
+ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=~/mmission_ws/src/mission_manager/routes/intersection/E_STRAIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
+ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=~/mmission_ws/src/mission_manager/routes/intersection/E_LEFT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
+ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=~/mmission_ws/src/mission_manager/routes/intersection/E_RIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
+ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=~/mmission_ws/src/mission_manager/routes/intersection/S_STRAIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
+ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=~/mmission_ws/src/mission_manager/routes/intersection/S_LEFT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
+ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=~/mmission_ws/src/mission_manager/routes/intersection/S_RIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
+ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=~/mmission_ws/src/mission_manager/routes/intersection/W_STRAIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
+ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=~/mmission_ws/src/mission_manager/routes/intersection/W_LEFT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
+ros2 run mission_manager route_recorder --ros-args --params-file src/mission_manager/config/gps_route.yaml -p out_csv:=~/mmission_ws/src/mission_manager/routes/intersection/W_RIGHT.csv -p record_direction:=forward -p record_mode:=INTERSECTION -p record_drive_level:=2.0
 ```
 
 실차 경로는 `routes/intersection/`, synthetic 데이터는

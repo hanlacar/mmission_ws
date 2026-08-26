@@ -84,8 +84,8 @@ gps_route_follower:
     # NOT VERIFIED — RTK 실차 횡오차와 차량 기하를 측정한 뒤 조정할 것.
     intersection.start_accept_radius_m: 1.0
     intersection.start_heading_tolerance_deg: 30.0
-    intersection.off_route_warn_m: 0.20
-    intersection.off_route_stop_m: 0.35
+    intersection.off_route_warn_m: 1.0
+    intersection.off_route_stop_m: 2.0
     intersection.off_route_stop_count: 3
     intersection.off_route_recover_count: 5
     intersection.heading_warn_deg: 10.0
