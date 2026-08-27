@@ -12,7 +12,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             "route_csv",
-            default_value="/home/qor/mmission_ws/routes/recorded_route.csv"),
+            default_value="/home/ww/mmission_ws/routes/recorded_route.csv"),
         Node(package="mission_manager", executable="route_recorder",
              parameters=[config, {"out_csv": LaunchConfiguration("route_csv")}],
              output="screen"),

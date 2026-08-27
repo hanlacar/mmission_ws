@@ -15,8 +15,8 @@ gps_route_follower:
     gps_drive_topic: /gps_drive
     # GPS 조향 규약: 양수는 실제 앞바퀴 좌회전, 음수는 우회전입니다.
     gps_wheel_topic: /gps_wheel
-    # 경로의 위치별 mode만 발행하며 /vehicle_mode는 발행하지 않습니다.
     drive_mode_topic: /drive_mode
+    vehicle_mode_topic: /vehicle_mode
     status_topic: /gps_navigation/status
     control_rate_hz: 20.0
     # Pure Pursuit 계산에 사용하는 차량 축거입니다.
@@ -41,7 +41,14 @@ gps_route_follower:
     start_heading_tolerance_deg: 70.0
     # nearest는 거리·tangent·direction을 함께 평가하고 route_start는 첫 segment만 허용합니다.
     start_policy: nearest
-    start_accept_radius_m: 2.0
+    start_accept_radius_m: 1.0
+    # ---- 경로 자동 재합류 ----
+    # 1m 이내: 바로 TRACKING
+    # 1~5m: REJOINING으로 저속 접근
+    # 5m 초과: 주행 시작 금지
+    rejoin_max_distance_m: 5.0
+    rejoin_speed_level: 1.0
+    rejoin_lookahead_m: 1.0
     # 경로 이탈 경고에서는 감속하고, 정지 임계 초과가 연속되면 정지합니다.
     off_route_warn_m: 1.0
     off_route_stop_m: 2.0
