@@ -133,6 +133,7 @@ setup(
             'imu_driver = mission_manager.imu_driver_node:main',
             'camera_driver = mission_manager.camera_driver_node:main',
             'wheel_odom = mission_manager.wheel_odom_node:main',
+            'gps_dr_supervisor = mission_manager.gps_dr_supervisor_node:main',
             'path_recorder_sim = mission_manager.path_recorder_sim_node:main',
             'path_follower_sim = mission_manager.path_follower_sim_node:main',
             'fake_gps_sim = mission_manager.fake_gps_sim_node:main',

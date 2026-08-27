@@ -3,7 +3,7 @@ gps_route_follower:
     # 기록·검증된 CSV 경로와 같은 이름의 YAML metadata를 사용합니다.
     route_path: ""
     # 실제 RTK와 fake GPS가 공유하는 입력 토픽입니다.
-    gps_fix_topic: /fix
+    gps_fix_topic: /localization/fix
     gps_velocity_topic: /vel
     # imu_manager의 현재 실제 계약. yaw-rate 토픽은 없으므로 비워 둡니다.
     imu_yaw_topic: /imu/relative_yaw_deg

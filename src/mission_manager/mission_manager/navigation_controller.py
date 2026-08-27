@@ -22,6 +22,9 @@ class FollowerState(str, Enum):
 
     TRACKING = "TRACKING"
 
+    APPROACH_STOP_LINE = "APPROACH_STOP_LINE"
+    STOPPED_AT_STOP_LINE = "STOPPED_AT_STOP_LINE"
+
     APPROACH_CUSP = "APPROACH_CUSP"
     STOPPED_AT_CUSP = "STOPPED_AT_CUSP"
 
@@ -90,6 +93,16 @@ class ControllerConfig:
 
     off_route_stop_count: int = 3
     off_route_recover_count: int = 5
+
+    # ----------------------------------------------------------
+    # STOP_LINE
+    # ----------------------------------------------------------
+
+    # 정지선 2m 전부터 level 1로 감속
+    stop_line_approach_m: float = 2.0
+
+    # 정지선 0.35m 이내에서 완전 정지
+    stop_line_tolerance_m: float = 0.35
 
     # ----------------------------------------------------------
     # Forward / reverse transition
@@ -190,6 +203,16 @@ class NavigationController:
 
         self.offroute_latched = False
 
+        # ------------------------------------------------------
+        # STOP_LINE
+        # ------------------------------------------------------
+
+        # 이미 처리하고 통과한 STOP_LINE waypoint index
+        self.completed_events = set()
+
+        # 현재 접근/정지 중인 STOP_LINE index
+        self.active_stop_line_index = None
+
     # ==========================================================
     # Sensor input
     # ==========================================================
@@ -268,6 +291,77 @@ class NavigationController:
             direction=point.direction.value,
             drive_level=0.0,
         )
+
+    # ==========================================================
+    # STOP_LINE
+    # ==========================================================
+
+    def _next_stop_line(self):
+        """현재 진행 위치 이후의 다음 미처리 STOP_LINE을 반환한다."""
+
+        if self.active_stop_line_index is not None:
+
+            index = self.active_stop_line_index
+
+            if (
+                0 <= index
+                < len(self.route.waypoints)
+            ):
+                return self.route.waypoints[index]
+
+            self.active_stop_line_index = None
+
+        # RouteTracker.segment는 waypoint와 정확히 같은 의미가
+        # 아닐 수 있으므로 한 점 뒤부터 검사한다.
+        start_index = max(
+            0,
+            self.tracker.segment - 1,
+        )
+
+        for point in self.route.waypoints[start_index:]:
+
+            if (
+                point.index
+                in self.completed_events
+            ):
+                continue
+
+            if (
+                getattr(
+                    point,
+                    "event",
+                    "NONE",
+                ).upper()
+                == "STOP_LINE"
+            ):
+                return point
+
+        return None
+
+    def release_stop_line(self) -> bool:
+        """정지 중인 STOP_LINE을 통과 허가한다."""
+
+        if (
+            self.state
+            != FollowerState.STOPPED_AT_STOP_LINE
+        ):
+            return False
+
+        if (
+            self.active_stop_line_index
+            is None
+        ):
+            return False
+
+        self.completed_events.add(
+            self.active_stop_line_index
+        )
+
+        self.active_stop_line_index = None
+
+        self.state = FollowerState.TRACKING
+
+        return True
 
     # ==========================================================
     # REJOIN
@@ -622,6 +716,74 @@ class NavigationController:
             )
 
         # ======================================================
+        # STOP_LINE
+        # ======================================================
+
+        stop_line = self._next_stop_line()
+
+        stop_line_distance = None
+
+        if stop_line is not None:
+
+            stop_line_distance = math.hypot(
+                stop_line.x_m - self.x,
+                stop_line.y_m - self.y,
+            )
+
+            # --------------------------------------------------
+            # 이미 STOP_LINE에서 정지한 상태
+            # --------------------------------------------------
+
+            if (
+                self.state
+                == FollowerState.STOPPED_AT_STOP_LINE
+                and self.active_stop_line_index
+                == stop_line.index
+            ):
+                return self._stop(
+                    "waiting stop line release",
+                    FollowerState.STOPPED_AT_STOP_LINE,
+                )
+
+            # --------------------------------------------------
+            # STOP_LINE 도착
+            # --------------------------------------------------
+
+            if (
+                stop_line_distance
+                <= self.config.stop_line_tolerance_m
+            ):
+
+                self.active_stop_line_index = (
+                    stop_line.index
+                )
+
+                return self._stop(
+                    (
+                        "stop line reached "
+                        f"index={stop_line.index}"
+                    ),
+                    FollowerState.STOPPED_AT_STOP_LINE,
+                )
+
+            # --------------------------------------------------
+            # STOP_LINE 접근
+            # --------------------------------------------------
+
+            if (
+                stop_line_distance
+                <= self.config.stop_line_approach_m
+            ):
+
+                self.active_stop_line_index = (
+                    stop_line.index
+                )
+
+                self.state = (
+                    FollowerState.APPROACH_STOP_LINE
+                )
+
+        # ======================================================
         # Goal
         # ======================================================
 
@@ -737,15 +899,23 @@ class NavigationController:
 
             else:
 
-                self.state = (
-                    FollowerState.TRACKING
-                )
+                if (
+                    self.state
+                    != FollowerState.APPROACH_STOP_LINE
+                ):
+                    self.state = (
+                        FollowerState.TRACKING
+                    )
 
         else:
 
-            self.state = (
-                FollowerState.TRACKING
-            )
+            if (
+                self.state
+                != FollowerState.APPROACH_STOP_LINE
+            ):
+                self.state = (
+                    FollowerState.TRACKING
+                )
 
         # ======================================================
         # Current route point
@@ -767,7 +937,10 @@ class NavigationController:
 
         if (
             self.state
-            == FollowerState.APPROACH_CUSP
+            in (
+                FollowerState.APPROACH_CUSP,
+                FollowerState.APPROACH_STOP_LINE,
+            )
             or (
                 not self.route.metadata.loop
                 and goal_distance

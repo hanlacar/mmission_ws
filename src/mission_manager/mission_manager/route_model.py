@@ -20,6 +20,7 @@ class Waypoint:
     direction: Direction
     mode: str
     drive_level: float
+    event: str = "NONE"
 
 
 @dataclass(frozen=True)
@@ -35,4 +36,3 @@ class RouteMetadata:
 class Route:
     metadata: RouteMetadata
     waypoints: Sequence[Waypoint]
-

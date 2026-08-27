@@ -65,6 +65,9 @@ class GpsRouteFollowerNode(Node):
 
             "status_topic": "/gps_navigation/status",
 
+            # STOP_LINE 통과 허가
+            "stop_line_release_topic": "/stop_line/release",
+
             "control_rate_hz": 20.0,
 
             # --------------------------------------------------
@@ -455,6 +458,13 @@ class GpsRouteFollowerNode(Node):
             UInt8,
             "/intersection/command",
             self._on_command,
+            10,
+        )
+
+        self.create_subscription(
+            Bool,
+            self._p("stop_line_release_topic"),
+            self._on_stop_line_release,
             10,
         )
 
@@ -1001,6 +1011,37 @@ class GpsRouteFollowerNode(Node):
         )
 
         self._push_imu()
+
+    # ==========================================================
+    # STOP_LINE release
+    # ==========================================================
+
+    def _on_stop_line_release(
+        self,
+        msg: Bool,
+    ) -> None:
+
+        # False는 아무 동작도 하지 않는다.
+        if not msg.data:
+            return
+
+        released = (
+            self.controller.release_stop_line()
+        )
+
+        if released:
+
+            self.get_logger().info(
+                "STOP_LINE released; "
+                "route tracking resumed"
+            )
+
+        else:
+
+            self.get_logger().warning(
+                "STOP_LINE release ignored; "
+                "vehicle is not stopped at STOP_LINE"
+            )
 
     # ==========================================================
     # Intersection command

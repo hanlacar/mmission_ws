@@ -1,54 +1,105 @@
-"""Record versioned GPS routes with explicit direction, mode and drive level.
+"""Record versioned GPS routes with explicit direction, mode,
+drive level and route event.
 
 추가 기능:
 - CSV 저장 중 mode 변화 지점을 자동 감지
 - SEG01, SEG02 ... 자동 생성
 - <route_name>_segments.yaml 자동 생성/갱신
 - 마지막 waypoint를 goal_index로 자동 지정
+- event 저장 지원
+- STOP_LINE waypoint 저장 지원
 
 예:
+
 NORMAL → SLOPE → NORMAL → T_PARK
 
 자동 생성:
+
 SEG01 NORMAL
 SEG02 SLOPE
 SEG03 NORMAL
 SEG04 T_PARK
+
+event 예:
+
+NONE
+STOP_LINE
 """
 
 import csv
 import math
-from datetime import datetime, timezone
+from datetime import (
+    datetime,
+    timezone,
+)
 from pathlib import Path
 
 import rclpy
 import yaml
 
-from rcl_interfaces.msg import SetParametersResult
+from rcl_interfaces.msg import (
+    SetParametersResult,
+)
 from rclpy.node import Node
-from sensor_msgs.msg import NavSatFix, NavSatStatus
+from sensor_msgs.msg import (
+    NavSatFix,
+    NavSatStatus,
+)
 
 from .geo_utils import latlon_to_xy
+
+
+VALID_EVENTS = (
+    "NONE",
+    "STOP_LINE",
+)
 
 
 class RouteRecorder(Node):
 
     def __init__(self) -> None:
-        super().__init__("gps_route_recorder")
+        super().__init__(
+            "gps_route_recorder"
+        )
 
         # ------------------------------------------------------
         # Parameters
         # ------------------------------------------------------
 
         for name, value in (
-            ("out_csv", "reference_course.csv"),
-            ("fix_topic", "/fix"),
-            ("min_spacing_m", 0.15),
-            ("record_direction", "forward"),
-            ("record_mode", "NORMAL"),
-            ("record_drive_level", 2.0),
+            (
+                "out_csv",
+                "reference_course.csv",
+            ),
+            (
+                "fix_topic",
+                "/fix",
+            ),
+            (
+                "min_spacing_m",
+                0.15,
+            ),
+            (
+                "record_direction",
+                "forward",
+            ),
+            (
+                "record_mode",
+                "NORMAL",
+            ),
+            (
+                "record_drive_level",
+                2.0,
+            ),
+            (
+                "record_event",
+                "NONE",
+            ),
         ):
-            self.declare_parameter(name, value)
+            self.declare_parameter(
+                name,
+                value,
+            )
 
         # ------------------------------------------------------
         # Output paths
@@ -69,18 +120,20 @@ class RouteRecorder(Node):
 
         # 일반 경로 metadata
         #
-        # example:
         # route01.csv
         # route01.yaml
+
         self.metadata_path = (
-            self.out.with_suffix(".yaml")
+            self.out.with_suffix(
+                ".yaml"
+            )
         )
 
         # segment metadata
         #
-        # example:
         # route01.csv
         # route01_segments.yaml
+
         self.segment_metadata_path = (
             self.out.with_name(
                 self.out.stem
@@ -103,8 +156,9 @@ class RouteRecorder(Node):
 
         self.count = 0
 
-        # mode/direction/drive_level 변경 시
-        # 다음 GPS fix를 무조건 기록
+        # mode / direction / drive_level /
+        # event 변경 시 다음 GPS fix를
+        # 무조건 기록한다.
         self.force_record = True
 
         # ------------------------------------------------------
@@ -140,6 +194,7 @@ class RouteRecorder(Node):
                 "direction",
                 "mode",
                 "drive_level",
+                "event",
             )
         )
 
@@ -166,15 +221,20 @@ class RouteRecorder(Node):
 
         self.get_logger().info(
             "Recording GPS reference route\n"
-            f"CSV: {self.out.resolve()}\n"
-            f"Metadata: {self.metadata_path.resolve()}\n"
-            f"Segments: {self.segment_metadata_path.resolve()}\n"
+            f"CSV: "
+            f"{self.out.resolve()}\n"
+            f"Metadata: "
+            f"{self.metadata_path.resolve()}\n"
+            f"Segments: "
+            f"{self.segment_metadata_path.resolve()}\n"
             f"Direction: "
             f"{str(self.get_parameter('record_direction').value).upper()}\n"
             f"Mode: "
             f"{self.get_parameter('record_mode').value}\n"
             f"Drive level: "
-            f"{float(self.get_parameter('record_drive_level').value):.2f}"
+            f"{float(self.get_parameter('record_drive_level').value):.2f}\n"
+            f"Event: "
+            f"{self.get_parameter('record_event').value}"
         )
 
     # ==========================================================
@@ -187,6 +247,10 @@ class RouteRecorder(Node):
     ):
 
         for param in params:
+
+            # --------------------------------------------------
+            # Direction validation
+            # --------------------------------------------------
 
             if (
                 param.name
@@ -205,10 +269,16 @@ class RouteRecorder(Node):
                     ),
                 )
 
+            # --------------------------------------------------
+            # Drive level validation
+            # --------------------------------------------------
+
             if (
                 param.name
                 == "record_drive_level"
-                and float(param.value)
+                and float(
+                    param.value
+                )
                 not in (
                     1.0,
                     2.0,
@@ -223,11 +293,41 @@ class RouteRecorder(Node):
                     ),
                 )
 
-            # 변경 지점은 waypoint를 강제로 남긴다.
+            # --------------------------------------------------
+            # Event validation
+            # --------------------------------------------------
+
+            if (
+                param.name
+                == "record_event"
+            ):
+
+                event = str(
+                    param.value
+                ).strip().upper()
+
+                if event not in VALID_EVENTS:
+
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            "event must be "
+                            "NONE or STOP_LINE"
+                        ),
+                    )
+
+            # --------------------------------------------------
+            # Boundary recording
+            # --------------------------------------------------
+
+            # 값이 바뀌는 지점은 waypoint를
+            # 무조건 한 개 남긴다.
+
             if param.name in (
                 "record_direction",
                 "record_mode",
                 "record_drive_level",
+                "record_event",
             ):
 
                 self.force_record = True
@@ -268,7 +368,7 @@ class RouteRecorder(Node):
             return
 
         # ------------------------------------------------------
-        # First point → origin
+        # First point -> origin
         # ------------------------------------------------------
 
         if self.origin is None:
@@ -281,7 +381,7 @@ class RouteRecorder(Node):
             self._write_metadata()
 
         # ------------------------------------------------------
-        # GPS → local XY
+        # GPS -> local XY
         # ------------------------------------------------------
 
         x, y = latlon_to_xy(
@@ -324,7 +424,7 @@ class RouteRecorder(Node):
             self.get_parameter(
                 "record_mode"
             ).value
-        )
+        ).strip()
 
         level = float(
             self.get_parameter(
@@ -332,7 +432,24 @@ class RouteRecorder(Node):
             ).value
         )
 
-        waypoint_index = self.count
+        event = str(
+            self.get_parameter(
+                "record_event"
+            ).value
+        ).strip().upper()
+
+        if event not in VALID_EVENTS:
+
+            self.get_logger().error(
+                "Invalid record_event: "
+                f"{event}"
+            )
+
+            return
+
+        waypoint_index = (
+            self.count
+        )
 
         # ------------------------------------------------------
         # CSV write
@@ -348,10 +465,25 @@ class RouteRecorder(Node):
                 direction,
                 mode,
                 f"{level:.2f}",
+                event,
             )
         )
 
         self.stream.flush()
+
+        # ------------------------------------------------------
+        # Logging
+        # ------------------------------------------------------
+
+        if event != "NONE":
+
+            self.get_logger().info(
+                "Route event recorded: "
+                f"index={waypoint_index} "
+                f"event={event} "
+                f"x={x:.2f} "
+                f"y={y:.2f}"
+            )
 
         # ------------------------------------------------------
         # Segment update
@@ -362,12 +494,16 @@ class RouteRecorder(Node):
             mode,
         )
 
-        # segment YAML도 매 waypoint마다 갱신한다.
+        # segment YAML도 waypoint마다
+        # 갱신한다.
         #
-        # 즉 Ctrl+C뿐 아니라 예상치 못한 종료가 발생해도
-        # 가능한 최신 segment 정보가 남는다.
+        # 갑작스러운 종료가 발생하더라도
+        # 가능한 최신 상태를 남긴다.
+
         self._write_segment_metadata(
-            current_end_index=waypoint_index
+            current_end_index=(
+                waypoint_index
+            )
         )
 
         # ------------------------------------------------------
@@ -380,6 +516,7 @@ class RouteRecorder(Node):
         )
 
         self.count += 1
+
         self.force_record = False
 
     # ==========================================================
@@ -393,13 +530,21 @@ class RouteRecorder(Node):
     ) -> None:
 
         # ------------------------------------------------------
-        # 첫 waypoint
+        # First waypoint
         # ------------------------------------------------------
 
-        if self.current_segment_mode is None:
+        if (
+            self.current_segment_mode
+            is None
+        ):
 
-            self.current_segment_mode = mode
-            self.current_segment_start = waypoint_index
+            self.current_segment_mode = (
+                mode
+            )
+
+            self.current_segment_start = (
+                waypoint_index
+            )
 
             self.get_logger().info(
                 "Segment start: "
@@ -411,7 +556,7 @@ class RouteRecorder(Node):
             return
 
         # ------------------------------------------------------
-        # mode 동일 → 같은 segment
+        # Same mode
         # ------------------------------------------------------
 
         if (
@@ -421,7 +566,7 @@ class RouteRecorder(Node):
             return
 
         # ------------------------------------------------------
-        # mode 변경 → 이전 segment 종료
+        # Mode changed
         # ------------------------------------------------------
 
         previous_end = (
@@ -435,16 +580,21 @@ class RouteRecorder(Node):
 
         self.segments.append(
             {
-                "id": segment_id,
-                "mode": (
-                    self.current_segment_mode
-                ),
-                "start_index": int(
-                    self.current_segment_start
-                ),
-                "end_index": int(
-                    previous_end
-                ),
+                "id":
+                    segment_id,
+
+                "mode":
+                    self.current_segment_mode,
+
+                "start_index":
+                    int(
+                        self.current_segment_start
+                    ),
+
+                "end_index":
+                    int(
+                        previous_end
+                    ),
             }
         )
 
@@ -459,10 +609,13 @@ class RouteRecorder(Node):
         )
 
         # ------------------------------------------------------
-        # 새 segment 시작
+        # Start new segment
         # ------------------------------------------------------
 
-        self.current_segment_mode = mode
+        self.current_segment_mode = (
+            mode
+        )
+
         self.current_segment_start = (
             waypoint_index
         )
@@ -491,7 +644,8 @@ class RouteRecorder(Node):
             return
 
         metadata = {
-            "format_version": 1,
+            "format_version":
+                1,
 
             "origin_lat":
                 self.origin[0],
@@ -499,7 +653,8 @@ class RouteRecorder(Node):
             "origin_lon":
                 self.origin[1],
 
-            "loop": False,
+            "loop":
+                False,
 
             "created_at":
                 datetime.now(
@@ -527,9 +682,12 @@ class RouteRecorder(Node):
         current_end_index=None,
     ) -> None:
 
-        # 아직 waypoint 없음
-        if self.count == 0 and (
-            current_end_index is None
+        # 아직 waypoint가 없음
+
+        if (
+            self.count == 0
+            and current_end_index
+            is None
         ):
             return
 
@@ -541,6 +699,7 @@ class RouteRecorder(Node):
 
         # 현재 열려 있는 마지막 segment도
         # YAML에 임시 포함한다.
+
         if (
             self.current_segment_mode
             is not None
@@ -548,12 +707,18 @@ class RouteRecorder(Node):
             is not None
         ):
 
-            if current_end_index is None:
+            if (
+                current_end_index
+                is None
+            ):
+
                 end_index = max(
                     0,
                     self.count - 1,
                 )
+
             else:
+
                 end_index = int(
                     current_end_index
                 )
@@ -565,7 +730,8 @@ class RouteRecorder(Node):
 
             segments.append(
                 {
-                    "id": current_id,
+                    "id":
+                        current_id,
 
                     "mode":
                         self.current_segment_mode,
@@ -584,7 +750,9 @@ class RouteRecorder(Node):
             return
 
         goal_index = max(
-            int(segment["end_index"])
+            int(
+                segment["end_index"]
+            )
             for segment
             in segments
         )
@@ -597,9 +765,11 @@ class RouteRecorder(Node):
                 segments,
         }
 
-        with self.segment_metadata_path.open(
-            "w",
-            encoding="utf-8",
+        with (
+            self.segment_metadata_path.open(
+                "w",
+                encoding="utf-8",
+            )
         ) as stream:
 
             yaml.safe_dump(
@@ -618,7 +788,7 @@ class RouteRecorder(Node):
     ) -> None:
 
         # ------------------------------------------------------
-        # 마지막 segment 확정
+        # Finalize last segment
         # ------------------------------------------------------
 
         if (
@@ -638,8 +808,9 @@ class RouteRecorder(Node):
                 f"{len(self.segments) + 1:02d}"
             )
 
-            # 아직 finalized list에 들어가지 않은
-            # 마지막 segment 확정
+            # 아직 finalized list에
+            # 들어가지 않은 마지막 segment
+
             self.segments.append(
                 {
                     "id":
@@ -660,11 +831,16 @@ class RouteRecorder(Node):
                 }
             )
 
-            # current segment를 닫은 것으로 표시
-            self.current_segment_mode = None
-            self.current_segment_start = None
+            self.current_segment_mode = (
+                None
+            )
 
-            # 최종 segments.yaml 저장
+            self.current_segment_start = (
+                None
+            )
+
+            # 최종 segments.yaml
+
             if self.segments:
 
                 data = {
@@ -702,7 +878,9 @@ class RouteRecorder(Node):
         # ------------------------------------------------------
 
         if not self.stream.closed:
+
             self.stream.flush()
+
             self.stream.close()
 
         super().destroy_node()
@@ -715,11 +893,13 @@ def main() -> None:
     node = RouteRecorder()
 
     try:
+
         rclpy.spin(
             node
         )
 
     except KeyboardInterrupt:
+
         pass
 
     finally:
