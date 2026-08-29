@@ -32,7 +32,9 @@ class RouteAccuracyMonitor(Node):
     def __init__(self) -> None:
         super().__init__("route_accuracy_monitor")
         defaults = {
-            "route_csv": "", "fix_topic": "/fix",
+            "route_csv": "",
+            "fix_topic": "/fix",
+            "position_source": "gps",
             "accuracy_tolerance_m": 0.30,
             "max_route_match_distance_m": 3.0,
             "gps_timeout_sec": 1.0,
@@ -42,7 +44,7 @@ class RouteAccuracyMonitor(Node):
             "odom_topic": "/odom",
             "encoder_counts_per_meter": 0.0,
             "save_csv": True,
-            "output_csv": "route_accuracy.csv",
+            "output_csv": "/home/ww/mmission_ws/logs/route_accuracy.csv",
             "csv_flush_every": 20,
         }
         for name, value in defaults.items():
@@ -79,6 +81,28 @@ class RouteAccuracyMonitor(Node):
         self.state = "WAITING_FOR_GPS"
         self.current_route_index = 0
         self.route_progress_pct = 0.0
+
+        self.position_source = (
+            self._text("position_source")
+            .strip()
+            .lower()
+        )
+
+        if self.position_source not in (
+            "gps",
+            "odom",
+        ):
+            raise ValueError(
+                "position_source must be gps or odom"
+            )
+
+        self.heading_errors_deg = []
+        self.current_heading_error_deg = 0.0
+        self.mean_heading_error_deg = 0.0
+        self.max_heading_error_deg = 0.0
+
+        self.start_error_m = None
+        self.goal_error_m = None
 
         self.csv_stream = None
         self.csv_writer = None
@@ -159,10 +183,60 @@ class RouteAccuracyMonitor(Node):
             self.encoder_distance_m = max(
                 0.0, raw_distance-self.encoder_distance_baseline_m)
 
-    def _on_odom(self, msg: Odometry) -> None:
+    def _on_odom(
+        self,
+        msg: Odometry,
+    ) -> None:
+
         self.last_odom = msg
 
+        if self.position_source != "odom":
+            return
+
+        x = float(
+            msg.pose.pose.position.x
+        )
+
+        y = float(
+            msg.pose.pose.position.y
+        )
+
+        q = msg.pose.pose.orientation
+
+        siny_cosp = (
+            2.0
+            * (
+                q.w * q.z
+                + q.x * q.y
+            )
+        )
+
+        cosy_cosp = (
+            1.0
+            - 2.0
+            * (
+                q.y * q.y
+                + q.z * q.z
+            )
+        )
+
+        yaw = math.atan2(
+            siny_cosp,
+            cosy_cosp,
+        )
+
+        self._process_position(
+            x,
+            y,
+            self._now(),
+            heading_rad=yaw,
+        )
+
     def _on_fix(self, msg: NavSatFix) -> None:
+
+        if self.position_source != "gps":
+            return
+
         now = self._now()
         if not valid_gps_fix(msg.status.status, msg.latitude, msg.longitude):
             self.state = "INVALID_GPS"
@@ -176,37 +250,154 @@ class RouteAccuracyMonitor(Node):
             self.gps_travel_distance_m += math.hypot(
                 x-self.last_gps_xy[0], y-self.last_gps_xy[1])
         self.last_gps_xy = (x, y)
-        projection = self.geometry.nearest(x, y)
-        if projection.distance > self.max_match_distance:
+        self._process_position(
+            x,
+            y,
+            now,
+            heading_rad=None,
+        )
+
+    def _process_position(
+        self,
+        x,
+        y,
+        now,
+        heading_rad=None,
+    ) -> None:
+
+        projection = self.geometry.nearest(
+            x,
+            y,
+        )
+
+        if (
+            projection.distance
+            > self.max_match_distance
+        ):
             self.state = "OFF_ROUTE"
             self._publish_status(now)
             return
 
         self.state = "TRACKING"
-        snapshot = self.statistics.add(projection.distance)
-        self.current_route_index = projection.segment
-        self.route_progress_pct = self.geometry.progress_pct(projection)
+
+        snapshot = self.statistics.add(
+            projection.distance
+        )
+
+        self.current_route_index = (
+            projection.segment
+        )
+
+        self.route_progress_pct = (
+            self.geometry.progress_pct(
+                projection
+            )
+        )
+
+        # 시작점 오차
+        if self.start_error_m is None:
+
+            first = self.route.waypoints[0]
+
+            self.start_error_m = math.hypot(
+                x - first.x_m,
+                y - first.y_m,
+            )
+
+        # 종점 오차는 매 sample 갱신
+        last = self.route.waypoints[-1]
+
+        self.goal_error_m = math.hypot(
+            x - last.x_m,
+            y - last.y_m,
+        )
+
+        # DR odom일 때 heading error 계산
+        if heading_rad is not None:
+
+            route_heading = (
+                self.geometry.tangent(
+                    projection.segment
+                )
+            )
+
+            diff = math.atan2(
+                math.sin(
+                    heading_rad
+                    - route_heading
+                ),
+                math.cos(
+                    heading_rad
+                    - route_heading
+                ),
+            )
+
+            heading_error_deg = abs(
+                math.degrees(diff)
+            )
+
+            self.current_heading_error_deg = (
+                heading_error_deg
+            )
+
+            self.heading_errors_deg.append(
+                heading_error_deg
+            )
+
+            self.mean_heading_error_deg = (
+                sum(
+                    self.heading_errors_deg
+                )
+                / len(
+                    self.heading_errors_deg
+                )
+            )
+
+            self.max_heading_error_deg = max(
+                self.max_heading_error_deg,
+                heading_error_deg,
+            )
+
         values = {
-            "current_error_m": snapshot.current_error_m,
-            "mean_error_m": snapshot.mean_error_m,
-            "rmse_m": snapshot.rmse_m,
-            "max_error_m": snapshot.max_error_m,
-            "accuracy_pct": snapshot.accuracy_pct,
-            "route_progress_pct": self.route_progress_pct,
+            "current_error_m":
+                snapshot.current_error_m,
+            "mean_error_m":
+                snapshot.mean_error_m,
+            "rmse_m":
+                snapshot.rmse_m,
+            "max_error_m":
+                snapshot.max_error_m,
+            "accuracy_pct":
+                snapshot.accuracy_pct,
+            "route_progress_pct":
+                self.route_progress_pct,
         }
+
         for name, value in values.items():
-            self.metric_publishers[name].publish(Float32(data=float(value)))
-        self.route_index_pub.publish(Int32(data=self.current_route_index))
-        self.gps_distance_pub.publish(Float32(data=float(self.gps_travel_distance_m)))
-        total_distance = (self.encoder_distance_m if self.encoder_distance_m is not None
-                          else self.gps_travel_distance_m)
-        self.total_distance_pub.publish(Float32(data=float(total_distance)))
-        if self.encoder_distance_m is not None:
-            self.encoder_distance_pub.publish(Float32(data=self.encoder_distance_m))
-            self.distance_difference_pub.publish(Float32(
-                data=float(self.encoder_distance_m - self.gps_travel_distance_m)))
-        self._write_csv(now, projection, x, y, snapshot)
-        self._publish_status(now)
+
+            self.metric_publishers[name].publish(
+                Float32(
+                    data=float(value)
+                )
+            )
+
+        self.route_index_pub.publish(
+            Int32(
+                data=self.current_route_index
+            )
+        )
+
+        self._write_csv(
+            now,
+            projection,
+            x,
+            y,
+            snapshot,
+        )
+
+        self._publish_status(
+            now
+        )
 
     def _write_csv(self, now, projection, x, y, snapshot) -> None:
         if self.csv_writer is None:
@@ -236,8 +427,21 @@ class RouteAccuracyMonitor(Node):
 
     def _on_status_timer(self) -> None:
         now = self._now()
-        if self.last_fix_time is None or now - self.last_fix_time > self.gps_timeout:
-            self.state = "WAITING_FOR_GPS"
+
+        if self.position_source == "gps":
+
+            if (
+                self.last_fix_time is None
+                or now - self.last_fix_time
+                > self.gps_timeout
+            ):
+                self.state = "WAITING_FOR_GPS"
+
+        elif self.position_source == "odom":
+
+            if self.last_odom is None:
+                self.state = "WAITING_FOR_ODOM"
+
         self._publish_status(now)
 
     def _publish_status(self, now: float) -> None:
@@ -252,7 +456,26 @@ class RouteAccuracyMonitor(Node):
             "mean_error_m": snapshot.mean_error_m,
             "rmse_m": snapshot.rmse_m,
             "max_error_m": snapshot.max_error_m,
+            "p95_error_m": snapshot.p95_error_m,
             "accuracy_pct": snapshot.accuracy_pct,
+
+            "position_source":
+                self.position_source,
+
+            "current_heading_error_deg":
+                self.current_heading_error_deg,
+
+            "mean_heading_error_deg":
+                self.mean_heading_error_deg,
+
+            "max_heading_error_deg":
+                self.max_heading_error_deg,
+
+            "start_error_m":
+                self.start_error_m,
+
+            "goal_error_m":
+                self.goal_error_m,
             "valid_samples": snapshot.valid_samples,
             "success_samples": snapshot.success_samples,
             "current_route_index": self.current_route_index,

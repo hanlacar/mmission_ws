@@ -19,7 +19,7 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ros2 run mission_manager route_recorder \
   --ros-args \
   --params-file ~/mmission_ws/src/mission_manager/config/gps_route.yaml \
-  -p out_csv:=/home/qor/mmission_ws/routes/01_forward.csv \
+  -p out_csv:=/home/ww/mmission_ws/routes/01_forward.csv \
   -p record_direction:=forward \
   -p record_mode:=NORMAL \
   -p record_drive_level:=2.0
@@ -36,7 +36,7 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ros2 run mission_manager route_recorder \
   --ros-args \
   --params-file ~/mmission_ws/src/mission_manager/config/gps_route.yaml \
-  -p out_csv:=/home/qor/mmission_ws/routes/02_reverse.csv \
+  -p out_csv:=/home/ww/mmission_ws/routes/02_reverse.csv \
   -p record_direction:=reverse \
   -p record_mode:=NORMAL \
   -p record_drive_level:=2.0
@@ -53,7 +53,7 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ros2 run mission_manager route_recorder \
   --ros-args \
   --params-file ~/mmission_ws/src/mission_manager/config/gps_route.yaml \
-  -p out_csv:=/home/qor/mmission_ws/routes/03_intersection_straight.csv \
+  -p out_csv:=/home/ww/mmission_ws/routes/03_intersection_straight.csv \
   -p record_direction:=forward \
   -p record_mode:=INTERSECTION \
   -p record_drive_level:=2.0
@@ -70,7 +70,7 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ros2 run mission_manager route_recorder \
   --ros-args \
   --params-file ~/mmission_ws/src/mission_manager/config/gps_route.yaml \
-  -p out_csv:=/home/qor/mmission_ws/routes/03_intersection_left.csv \
+  -p out_csv:=/home/ww/mmission_ws/routes/03_intersection_left.csv \
   -p record_direction:=forward \
   -p record_mode:=INTERSECTION \
   -p record_drive_level:=2.0
@@ -87,7 +87,7 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ros2 run mission_manager route_recorder \
   --ros-args \
   --params-file ~/mmission_ws/src/mission_manager/config/gps_route.yaml \
-  -p out_csv:=/home/qor/mmission_ws/routes/03_intersection_right.csv \
+  -p out_csv:=/home/ww/mmission_ws/routes/03_intersection_right.csv \
   -p record_direction:=forward \
   -p record_mode:=INTERSECTION \
   -p record_drive_level:=2.0
@@ -104,7 +104,7 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ros2 run mission_manager route_recorder \
   --ros-args \
   --params-file ~/mmission_ws/src/mission_manager/config/gps_route.yaml \
-  -p out_csv:=/home/qor/mmission_ws/routes/full_record.csv \
+  -p out_csv:=/home/ww/mmission_ws/routes/full_record.csv \
   -p record_direction:=forward \
   -p record_mode:=NORMAL \
   -p record_drive_level:=2.0
@@ -141,19 +141,19 @@ export ROS_DOMAIN_ID=88
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 ros2 run mission_manager route_merge \
-  --out /home/qor/mmission_ws/routes/full_course.csv \
-  /home/qor/mmission_ws/routes/01_forward.csv \
-  /home/qor/mmission_ws/routes/03_intersection_straight.csv \
-  /home/qor/mmission_ws/routes/02_reverse.csv
+  --out /home/ww/mmission_ws/routes/full_course.csv \
+  /home/ww/mmission_ws/routes/01_forward.csv \
+  /home/ww/mmission_ws/routes/03_intersection_straight.csv \
+  /home/ww/mmission_ws/routes/02_reverse.csv
   
   
   
 직진 → 교차로 좌회전 → 직진 경로 하나로 제작
 ros2 run mission_manager route_merge \
-  --out /home/qor/mmission_ws/routes/full_left_course.csv \
-  /home/qor/mmission_ws/routes/01_before_intersection.csv \
-  /home/qor/mmission_ws/routes/03_intersection_left.csv \
-  /home/qor/mmission_ws/routes/04_after_intersection.csv
+  --out /home/ww/mmission_ws/routes/full_left_course.csv \
+  /home/ww/mmission_ws/routes/01_before_intersection.csv \
+  /home/ww/mmission_ws/routes/03_intersection_left.csv \
+  /home/ww/mmission_ws/routes/04_after_intersection.csv
   
   
   
@@ -163,7 +163,7 @@ cd ~/mmission_ws
 python3 - <<'PY'
 import csv
 
-path = "/home/qor/mmission_ws/routes/full_course.csv"
+path = "/home/ww/mmission_ws/routes/full_course.csv"
 start_index = 100
 end_index = 180
 
@@ -190,7 +190,7 @@ cd ~/mmission_ws
 python3 - <<'PY'
 import csv
 
-path = "/home/qor/mmission_ws/routes/full_course.csv"
+path = "/home/ww/mmission_ws/routes/full_course.csv"
 start_index = 181
 end_index = 250
 
@@ -217,7 +217,7 @@ cd ~/mmission_ws
 python3 - <<'PY'
 import csv
 
-path = "/home/qor/mmission_ws/routes/full_course.csv"
+path = "/home/ww/mmission_ws/routes/full_course.csv"
 start_index = 300
 end_index = 400
 

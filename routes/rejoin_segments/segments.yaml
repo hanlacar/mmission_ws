@@ -1,0 +1,14 @@
+goal_segment: seg03
+
+segments:
+  seg01:
+    csv: seg01.csv
+    next: seg02
+
+  seg02:
+    csv: seg02.csv
+    next: seg03
+
+  seg03:
+    csv: seg03.csv
+    next: null

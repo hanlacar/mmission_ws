@@ -189,8 +189,10 @@ def load_route(
                 )
 
                 mode = str(
-                    row["mode"]
-                ).strip()
+                    int(
+                        row["mode"]
+                    )
+                )
 
                 # 기존 CSV에는 event 컬럼이 없을 수 있으므로
                 # 없으면 자동으로 NONE 처리한다.
@@ -242,10 +244,19 @@ def load_route(
                     f"at index {index}"
                 )
 
-            if not mode:
+            mode_value = int(
+                mode
+            )
+
+            if not (
+                1
+                <= mode_value
+                <= 11
+            ):
                 raise RouteValidationError(
-                    f"empty mode "
-                    f"at index {index}"
+                    f"invalid mode "
+                    f"at index {index}: "
+                    f"{mode_value}; expected 1~11"
                 )
 
             if event not in VALID_EVENTS:

@@ -113,6 +113,6 @@ gps_route_recorder:
     # 기록 중 ros2 param set으로 forward/reverse를 변경하면 waypoint를 강제 기록합니다.
     record_direction: forward
     # 위치별 mode이며 변경 지점은 강제 기록됩니다.
-    record_mode: INTERSECTION
+    record_mode: 1
     # GPS 주행 단계는 1.00/2.00/3.00 중 하나입니다.
     record_drive_level: 2.0

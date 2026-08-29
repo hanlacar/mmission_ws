@@ -85,7 +85,7 @@ class RouteRecorder(Node):
             ),
             (
                 "record_mode",
-                "NORMAL",
+                1,
             ),
             (
                 "record_drive_level",
@@ -270,6 +270,43 @@ class RouteRecorder(Node):
                 )
 
             # --------------------------------------------------
+            # Mode validation
+            # --------------------------------------------------
+
+            if (
+                param.name
+                == "record_mode"
+            ):
+                try:
+                    mode_value = int(
+                        param.value
+                    )
+                except (
+                    ValueError,
+                    TypeError,
+                ):
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            "mode must be "
+                            "integer 1~11"
+                        ),
+                    )
+
+                if not (
+                    1
+                    <= mode_value
+                    <= 11
+                ):
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            "mode must be "
+                            "integer 1~11"
+                        ),
+                    )
+
+            # --------------------------------------------------
             # Drive level validation
             # --------------------------------------------------
 
@@ -421,10 +458,12 @@ class RouteRecorder(Node):
         )
 
         mode = str(
-            self.get_parameter(
-                "record_mode"
-            ).value
-        ).strip()
+            int(
+                self.get_parameter(
+                    "record_mode"
+                ).value
+            )
+        )
 
         level = float(
             self.get_parameter(

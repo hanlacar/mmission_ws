@@ -363,7 +363,7 @@ class GpsRouteFollowerNode(Node):
         )
 
         self.vehicle_mode_pub = self.create_publisher(
-            String,
+            Int32,
             self._p("vehicle_mode_topic"),
             10,
         )
@@ -1228,10 +1228,34 @@ class GpsRouteFollowerNode(Node):
             )
         )
 
-        # GPS route mode → MCU mode
+        # GPS waypoint mode 1~11 → vehicle mode
+        try:
+            vehicle_mode = int(
+                output.mode
+            )
+        except (
+            ValueError,
+            TypeError,
+        ):
+            self.get_logger().error(
+                "Invalid waypoint mode: "
+                f"{output.mode}. "
+                "Expected integer 1~11."
+            )
+
+            vehicle_mode = 1
+
+        vehicle_mode = max(
+            1,
+            min(
+                11,
+                vehicle_mode,
+            ),
+        )
+
         self.vehicle_mode_pub.publish(
-            String(
-                data=output.mode
+            Int32(
+                data=vehicle_mode
             )
         )
 

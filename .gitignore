@@ -1,11 +1,13 @@
 build/
 install/
 log/
-logs/
+
 __pycache__/
 *.pyc
-*.egg-info/
+*.pyo
+
 .vscode/
 .idea/
-*.swp
-.DS_Store
+
+*.bag
+*.db3

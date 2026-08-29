@@ -3,6 +3,7 @@ route_accuracy_monitor:
     # gps_route_follower에 전달하는 것과 동일한 CSV/YAML pair를 사용합니다.
     route_csv: ""
     fix_topic: /fix
+    position_source: odom
     accuracy_tolerance_m: 0.30
     max_route_match_distance_m: 3.0
     gps_timeout_sec: 1.0
@@ -14,5 +15,5 @@ route_accuracy_monitor:
     # t870_mcu의 counts_per_meter와 함께 실측값으로 설정합니다. 0은 UNAVAILABLE입니다.
     encoder_counts_per_meter: 0.0
     save_csv: true
-    output_csv: route_accuracy.csv
+    output_csv: /home/ww/mmission_ws/logs/route_accuracy.csv
     csv_flush_every: 20

@@ -125,6 +125,7 @@ setup(
 
     entry_points={
         'console_scripts': [
+            'odom_route_recorder = mission_manager.odom_route_recorder_node:main',
             'route_recorder = mission_manager.route_recorder_node:main',
             'route_merge = mission_manager.route_merge:main',
             'mission_sequencer = mission_manager.mission_sequencer_node:main',

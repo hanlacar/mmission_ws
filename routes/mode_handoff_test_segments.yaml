@@ -1,0 +1,10 @@
+goal_index: 20
+segments:
+- id: SEG01
+  mode: INTERSECTION
+  start_index: 0
+  end_index: 9
+- id: SEG02
+  mode: NORMAL
+  start_index: 10
+  end_index: 20

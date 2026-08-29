@@ -37,7 +37,7 @@ export ROS_DOMAIN_ID=0
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 ros2 launch mission_manager gps_route_record.launch.py \
-  route_csv:=/home/qor/mmission_ws/routes/intersection_straight.csv
+  route_csv:=/home/ww/mmission_ws/routes/intersection_straight.csv
   
   
   
@@ -62,7 +62,7 @@ ls -lh ~/mmission_ws/routes/intersection_straight.*
 좌회전
   
 ros2 launch mission_manager gps_route_record.launch.py \
-  route_csv:=/home/qor/mmission_ws/routes/intersection_left.csv
+  route_csv:=/home/ww/mmission_ws/routes/intersection_left.csv
   
   
   
@@ -84,7 +84,7 @@ ls -lh ~/mmission_ws/routes/intersection_left.*
 우회전
 
 ros2 launch mission_manager gps_route_record.launch.py \
-  route_csv:=/home/qor/mmission_ws/routes/intersection_right.csv
+  route_csv:=/home/ww/mmission_ws/routes/intersection_right.csv
 
 
 
@@ -111,12 +111,12 @@ ls -lh ~/mmission_ws/routes/intersection_right.*
 
 # T주차
 ros2 launch mission_manager gps_route_record.launch.py \
-  route_csv:=/home/qor/mmission_ws/routes/t_parking_forward_reverse.csv
+  route_csv:=/home/ww/mmission_ws/routes/t_parking_forward_reverse.csv
   
   
 # 평행주차
 ros2 launch mission_manager gps_route_record.launch.py \
-  route_csv:=/home/qor/mmission_ws/routes/parallel_parking_forward_reverse.csv
+  route_csv:=/home/ww/mmission_ws/routes/parallel_parking_forward_reverse.csv
   
   
   
