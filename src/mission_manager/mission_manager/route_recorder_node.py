@@ -1,20 +1,12 @@
-"""Record GPS + DR routes with manual drive/wheel commands.
+"""GPS + DR route recorder.
 
-저장 항목:
-- GPS latitude / longitude
-- GPS 기준 상대 x/y
-- MCU /odom 기준 상대 DR x/y/yaw
-- /manual_drive 기반 direction / drive_level
-- /manual_wheel 실제 조향값
-- mode
-- event
-
-기존 호환성:
-- 기존 x_m / y_m 컬럼은 GPS 좌표로 그대로 유지
-- 기존 route_loader가 요구하는 필수 컬럼 유지
-- 추가 DR/wheel 컬럼은 follower가 무시할 수 있음
-- drive_level은 기존 loader 호환을 위해 1.0 / 2.0 / 3.0만 저장
-- 후진 -1.0 입력은 direction=-1, drive_level=1.0으로 저장
+기능
+- GPS latitude / longitude 저장
+- GPS 기준 상대 x/y 저장
+- /odom 기준 상대 DR x/y/yaw 저장
+- direction / mode / drive_level / wheel 저장
+- mode 변경 시 SEG01, SEG02 ... 자동 구간 분리
+- STOP_LINE 이벤트는 단 1개 waypoint에만 저장 후 자동 NONE 복귀
 """
 
 import csv
@@ -28,6 +20,7 @@ import yaml
 from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from sensor_msgs.msg import NavSatFix, NavSatStatus
 from std_msgs.msg import Float32, Int32
 
@@ -49,63 +42,28 @@ VALID_DRIVE_LEVELS = (
 class RouteRecorder(Node):
 
     def __init__(self) -> None:
-        super().__init__(
-            "gps_route_recorder"
-        )
+        super().__init__("gps_route_recorder")
 
         # ======================================================
         # Parameters
         # ======================================================
 
         for name, value in (
-            (
-                "out_csv",
-                "reference_course.csv",
-            ),
-            (
-                "fix_topic",
-                "/fix",
-            ),
-            (
-                "odom_topic",
-                "/odom",
-            ),
-            (
-                "manual_drive_topic",
-                "/manual_drive",
-            ),
-            (
-                "manual_wheel_topic",
-                "/manual_wheel",
-            ),
-            (
-                "min_spacing_m",
-                0.15,
-            ),
-            (
-                "record_direction",
-                "forward",
-            ),
-            (
-                "record_mode",
-                1,
-            ),
-            (
-                "record_drive_level",
-                2.0,
-            ),
-            (
-                "record_event",
-                "NONE",
-            ),
+            ("out_csv", "reference_course.csv"),
+            ("fix_topic", "/fix"),
+            ("odom_topic", "/odom"),
+            ("manual_drive_topic", "/manual_drive"),
+            ("manual_wheel_topic", "/manual_wheel"),
+            ("min_spacing_m", 0.15),
+            ("record_direction", "forward"),
+            ("record_mode", 1),
+            ("record_drive_level", 2.0),
+            ("record_event", "NONE"),
         ):
-            self.declare_parameter(
-                name,
-                value,
-            )
+            self.declare_parameter(name, value)
 
         # ======================================================
-        # Output paths
+        # Output
         # ======================================================
 
         self.out = Path(
@@ -122,9 +80,7 @@ class RouteRecorder(Node):
         )
 
         self.metadata_path = (
-            self.out.with_suffix(
-                ".yaml"
-            )
+            self.out.with_suffix(".yaml")
         )
 
         self.segment_metadata_path = (
@@ -135,7 +91,7 @@ class RouteRecorder(Node):
         )
 
         # ======================================================
-        # GPS state
+        # GPS
         # ======================================================
 
         self.spacing = float(
@@ -146,13 +102,12 @@ class RouteRecorder(Node):
 
         self.origin = None
         self.last = None
-
         self.count = 0
 
         self.force_record = True
 
         # ======================================================
-        # ODOM / DR state
+        # ODOM / DR
         # ======================================================
 
         self.latest_odom = None
@@ -162,16 +117,16 @@ class RouteRecorder(Node):
         self.dr_origin_yaw = None
 
         # ======================================================
-        # Manual state
+        # Drive / Wheel
         # ======================================================
 
-        initial_direction = str(
+        direction = str(
             self.get_parameter(
                 "record_direction"
             ).value
         )
 
-        if initial_direction == "reverse":
+        if direction == "reverse":
             self.current_direction = -1
         else:
             self.current_direction = 1
@@ -188,7 +143,19 @@ class RouteRecorder(Node):
         self.manual_wheel_received = False
 
         # ======================================================
-        # Segment state
+        # One-shot Event
+        # ======================================================
+
+        # STOP_LINE 입력 후
+        # 다음 실제 기록 waypoint 1개에만 사용
+        self.pending_event = "NONE"
+
+        # 내부에서 STOP_LINE -> NONE으로 자동 초기화할 때
+        # 다시 이벤트 입력으로 판단하지 않기 위한 플래그
+        self.auto_resetting_event = False
+
+        # ======================================================
+        # Segments
         # ======================================================
 
         self.segments = []
@@ -286,10 +253,6 @@ class RouteRecorder(Node):
             20,
         )
 
-        # ======================================================
-        # Start log
-        # ======================================================
-
         self.get_logger().info(
             "\n"
             "GPS + DR route recorder started\n"
@@ -300,7 +263,8 @@ class RouteRecorder(Node):
             f"ODOM: {self.get_parameter('odom_topic').value}\n"
             f"Drive: {self.get_parameter('manual_drive_topic').value}\n"
             f"Wheel: {self.get_parameter('manual_wheel_topic').value}\n"
-            f"Mode: {self.get_parameter('record_mode').value}"
+            f"Mode: {self.get_parameter('record_mode').value}\n"
+            "Event mode: ONE-SHOT"
         )
 
     # ==========================================================
@@ -308,7 +272,7 @@ class RouteRecorder(Node):
     # ==========================================================
 
     @staticmethod
-    def _yaw_from_quaternion(q) -> float:
+    def _yaw_from_quaternion(q):
 
         siny_cosp = 2.0 * (
             q.w * q.z
@@ -330,13 +294,13 @@ class RouteRecorder(Node):
         )
 
     # ==========================================================
-    # ODOM callback
+    # ODOM
     # ==========================================================
 
     def _on_odom(
         self,
         msg: Odometry,
-    ) -> None:
+    ):
 
         x = float(
             msg.pose.pose.position.x
@@ -351,18 +315,14 @@ class RouteRecorder(Node):
         )
 
         if not all(
-            math.isfinite(value)
-            for value in (
+            math.isfinite(v)
+            for v in (
                 x,
                 y,
                 yaw,
             )
         ):
             return
-
-        # ------------------------------------------------------
-        # 첫 odom을 DR 원점으로 설정
-        # ------------------------------------------------------
 
         if self.dr_origin_x is None:
 
@@ -377,10 +337,6 @@ class RouteRecorder(Node):
                 f"yaw={math.degrees(yaw):.2f} deg"
             )
 
-        # ------------------------------------------------------
-        # 원점 기준 이동량
-        # ------------------------------------------------------
-
         dx = (
             x
             - self.dr_origin_x
@@ -390,10 +346,6 @@ class RouteRecorder(Node):
             y
             - self.dr_origin_y
         )
-
-        # ------------------------------------------------------
-        # 시작 yaw 기준 좌표계로 회전
-        # ------------------------------------------------------
 
         c = math.cos(
             self.dr_origin_yaw
@@ -413,42 +365,32 @@ class RouteRecorder(Node):
             + c * dy
         )
 
-        # ------------------------------------------------------
-        # 상대 yaw
-        # ------------------------------------------------------
-
         dr_yaw = (
             yaw
             - self.dr_origin_yaw
         )
 
         dr_yaw = math.atan2(
-            math.sin(
-                dr_yaw
-            ),
-            math.cos(
-                dr_yaw
-            ),
-        )
-
-        dr_yaw_deg = math.degrees(
-            dr_yaw
+            math.sin(dr_yaw),
+            math.cos(dr_yaw),
         )
 
         self.latest_odom = (
             dr_x,
             dr_y,
-            dr_yaw_deg,
+            math.degrees(
+                dr_yaw
+            ),
         )
 
     # ==========================================================
-    # Manual drive
+    # Manual Drive
     # ==========================================================
 
     def _on_manual_drive(
         self,
         msg: Float32,
-    ) -> None:
+    ):
 
         value = float(
             msg.data
@@ -461,36 +403,22 @@ class RouteRecorder(Node):
 
         self.manual_drive_received = True
 
-        # ------------------------------------------------------
-        # 0 = 정지
-        #
-        # 기존 route_loader는 drive_level=0을 허용하지 않으므로
-        # 마지막 유효 direction / drive_level 유지
-        # ------------------------------------------------------
-
         if abs(value) < 1.0e-6:
             return
-
-        # ------------------------------------------------------
-        # 방향 자동 결정
-        # ------------------------------------------------------
 
         if value > 0.0:
             direction = 1
         else:
             direction = -1
 
-        # ------------------------------------------------------
-        # 속도 단계
-        #
-        # -1.0 → direction=-1, drive_level=1.0
-        # ------------------------------------------------------
-
         drive_level = abs(
             value
         )
 
-        if drive_level not in VALID_DRIVE_LEVELS:
+        if (
+            drive_level
+            not in VALID_DRIVE_LEVELS
+        ):
 
             self.get_logger().warning(
                 "Unsupported /manual_drive: "
@@ -530,13 +458,13 @@ class RouteRecorder(Node):
             )
 
     # ==========================================================
-    # Manual wheel
+    # Manual Wheel
     # ==========================================================
 
     def _on_manual_wheel(
         self,
         msg: Int32,
-    ) -> None:
+    ):
 
         wheel = int(
             msg.data
@@ -544,13 +472,16 @@ class RouteRecorder(Node):
 
         self.manual_wheel_received = True
 
-        if wheel == self.current_wheel:
+        if (
+            wheel
+            == self.current_wheel
+        ):
             return
 
-        self.current_wheel = wheel
+        self.current_wheel = (
+            wheel
+        )
 
-        # 조향 변화가 생긴 위치도
-        # 다음 유효 GPS fix에서 저장
         self.force_record = True
 
         self.get_logger().info(
@@ -559,7 +490,7 @@ class RouteRecorder(Node):
         )
 
     # ==========================================================
-    # Runtime parameter change
+    # Parameter Change
     # ==========================================================
 
     def _parameters_changed(
@@ -569,18 +500,21 @@ class RouteRecorder(Node):
 
         for param in params:
 
-            # --------------------------------------------------
+            # ------------------------------------------
             # Direction
-            # --------------------------------------------------
+            # ------------------------------------------
 
             if (
                 param.name
                 == "record_direction"
             ):
 
-                if param.value not in (
-                    "forward",
-                    "reverse",
+                if (
+                    param.value
+                    not in (
+                        "forward",
+                        "reverse",
+                    )
                 ):
 
                     return SetParametersResult(
@@ -591,11 +525,14 @@ class RouteRecorder(Node):
                         ),
                     )
 
-            # --------------------------------------------------
+            # ------------------------------------------
             # Mode
-            # --------------------------------------------------
+            # ------------------------------------------
 
-            if param.name == "record_mode":
+            if (
+                param.name
+                == "record_mode"
+            ):
 
                 try:
                     mode_value = int(
@@ -629,9 +566,9 @@ class RouteRecorder(Node):
                         ),
                     )
 
-            # --------------------------------------------------
-            # Drive level
-            # --------------------------------------------------
+            # ------------------------------------------
+            # Drive Level
+            # ------------------------------------------
 
             if (
                 param.name
@@ -651,8 +588,8 @@ class RouteRecorder(Node):
                     return SetParametersResult(
                         successful=False,
                         reason=(
-                            "record_drive_level must "
-                            "be numeric"
+                            "record_drive_level "
+                            "must be numeric"
                         ),
                     )
 
@@ -664,14 +601,14 @@ class RouteRecorder(Node):
                     return SetParametersResult(
                         successful=False,
                         reason=(
-                            "record_drive_level must "
-                            "be 1/2/3"
+                            "record_drive_level "
+                            "must be 1/2/3"
                         ),
                     )
 
-            # --------------------------------------------------
-            # Event
-            # --------------------------------------------------
+            # ==========================================
+            # ONE-SHOT EVENT
+            # ==========================================
 
             if (
                 param.name
@@ -682,7 +619,10 @@ class RouteRecorder(Node):
                     param.value
                 ).strip().upper()
 
-                if event not in VALID_EVENTS:
+                if (
+                    event
+                    not in VALID_EVENTS
+                ):
 
                     return SetParametersResult(
                         successful=False,
@@ -692,12 +632,34 @@ class RouteRecorder(Node):
                         ),
                     )
 
-            # --------------------------------------------------
-            # Manual drive 미수신 시에만
-            # 기존 파라미터 방식 fallback
-            # --------------------------------------------------
+                # 자동 NONE 복귀가 아닌,
+                # 사용자가 직접 이벤트를 입력한 경우
+                if not self.auto_resetting_event:
 
-            if not self.manual_drive_received:
+                    self.pending_event = (
+                        event
+                    )
+
+                    if (
+                        event
+                        != "NONE"
+                    ):
+
+                        # 다음 fix를 반드시 기록
+                        self.force_record = True
+
+                        self.get_logger().info(
+                            "One-shot event armed: "
+                            f"{event}"
+                        )
+
+            # ------------------------------------------
+            # Manual drive fallback
+            # ------------------------------------------
+
+            if (
+                not self.manual_drive_received
+            ):
 
                 if (
                     param.name
@@ -721,15 +683,17 @@ class RouteRecorder(Node):
                         param.value
                     )
 
-            # --------------------------------------------------
-            # 경계 지점 강제 기록
-            # --------------------------------------------------
+            # ------------------------------------------
+            # 구간 / 방향 / 속도 변경점 강제 저장
+            # ------------------------------------------
 
-            if param.name in (
-                "record_direction",
-                "record_mode",
-                "record_drive_level",
-                "record_event",
+            if (
+                param.name
+                in (
+                    "record_direction",
+                    "record_mode",
+                    "record_drive_level",
+                )
             ):
 
                 self.force_record = True
@@ -745,17 +709,17 @@ class RouteRecorder(Node):
         )
 
     # ==========================================================
-    # GPS callback
+    # GPS
     # ==========================================================
 
     def _on_fix(
         self,
         msg: NavSatFix,
-    ) -> None:
+    ):
 
-        # ------------------------------------------------------
-        # GPS validity
-        # ------------------------------------------------------
+        # ------------------------------------------
+        # Fix validity
+        # ------------------------------------------
 
         if (
             msg.status.status
@@ -773,7 +737,6 @@ class RouteRecorder(Node):
         ):
             return
 
-        # 현재 rtk_node의 invalid 값 방어
         if (
             abs(
                 msg.latitude
@@ -786,11 +749,14 @@ class RouteRecorder(Node):
         ):
             return
 
-        # ------------------------------------------------------
-        # GPS origin
-        # ------------------------------------------------------
+        # ------------------------------------------
+        # GPS Origin
+        # ------------------------------------------
 
-        if self.origin is None:
+        if (
+            self.origin
+            is None
+        ):
 
             self.origin = (
                 msg.latitude,
@@ -805,9 +771,9 @@ class RouteRecorder(Node):
                 f"lon={msg.longitude:.10f}"
             )
 
-        # ------------------------------------------------------
+        # ------------------------------------------
         # GPS -> local XY
-        # ------------------------------------------------------
+        # ------------------------------------------
 
         x, y = latlon_to_xy(
             msg.latitude,
@@ -815,9 +781,9 @@ class RouteRecorder(Node):
             *self.origin,
         )
 
-        # ------------------------------------------------------
-        # 최소 저장 거리
-        # ------------------------------------------------------
+        # ------------------------------------------
+        # Minimum spacing
+        # ------------------------------------------
 
         distance_ok = (
             self.last is None
@@ -836,15 +802,18 @@ class RouteRecorder(Node):
         ):
             return
 
-        # ------------------------------------------------------
-        # DR 값
-        # ------------------------------------------------------
+        # ------------------------------------------
+        # ODOM required
+        # ------------------------------------------
 
-        if self.latest_odom is None:
+        if (
+            self.latest_odom
+            is None
+        ):
 
             self.get_logger().warning(
-                "Valid GPS received but /odom has "
-                "not been received yet. "
+                "Valid GPS received but "
+                "/odom has not been received yet. "
                 "Waypoint not recorded."
             )
 
@@ -856,9 +825,9 @@ class RouteRecorder(Node):
             dr_yaw_deg,
         ) = self.latest_odom
 
-        # ------------------------------------------------------
+        # ------------------------------------------
         # Current state
-        # ------------------------------------------------------
+        # ------------------------------------------
 
         direction = int(
             self.current_direction
@@ -880,15 +849,12 @@ class RouteRecorder(Node):
             self.current_wheel
         )
 
+        # 중요:
+        # parameter를 매번 읽지 않고
+        # 대기중인 이벤트 1개만 사용
         event = str(
-            self.get_parameter(
-                "record_event"
-            ).value
+            self.pending_event
         ).strip().upper()
-
-        # ------------------------------------------------------
-        # Validation
-        # ------------------------------------------------------
 
         if (
             drive_level
@@ -903,10 +869,13 @@ class RouteRecorder(Node):
 
             return
 
-        if event not in VALID_EVENTS:
+        if (
+            event
+            not in VALID_EVENTS
+        ):
 
             self.get_logger().error(
-                "Invalid record_event: "
+                "Invalid event: "
                 f"{event}"
             )
 
@@ -916,9 +885,9 @@ class RouteRecorder(Node):
             self.count
         )
 
-        # ------------------------------------------------------
+        # ------------------------------------------
         # CSV
-        # ------------------------------------------------------
+        # ------------------------------------------
 
         self.writer.writerow(
             (
@@ -940,10 +909,6 @@ class RouteRecorder(Node):
 
         self.stream.flush()
 
-        # ------------------------------------------------------
-        # Log
-        # ------------------------------------------------------
-
         self.get_logger().info(
             "Waypoint: "
             f"index={waypoint_index} "
@@ -953,20 +918,61 @@ class RouteRecorder(Node):
             f"dir={direction} "
             f"drive={drive_level:.2f} "
             f"wheel={wheel} "
-            f"mode={mode}"
+            f"mode={mode} "
+            f"event={event}"
         )
 
-        if event != "NONE":
+        # ==========================================
+        # EVENT 1회 소비
+        # ==========================================
+
+        if (
+            event
+            != "NONE"
+        ):
 
             self.get_logger().info(
-                "Route event recorded: "
+                "Route event recorded ONCE: "
                 f"index={waypoint_index} "
                 f"event={event}"
             )
 
-        # ------------------------------------------------------
+            # 내부 이벤트 제거
+            self.pending_event = (
+                "NONE"
+            )
+
+            # ROS parameter도 NONE으로 복귀
+            self.auto_resetting_event = (
+                True
+            )
+
+            try:
+
+                self.set_parameters(
+                    [
+                        Parameter(
+                            "record_event",
+                            Parameter.Type.STRING,
+                            "NONE",
+                        )
+                    ]
+                )
+
+            finally:
+
+                self.auto_resetting_event = (
+                    False
+                )
+
+            self.get_logger().info(
+                "Route event consumed: "
+                f"{event} -> NONE"
+            )
+
+        # ------------------------------------------
         # Segment
-        # ------------------------------------------------------
+        # ------------------------------------------
 
         self._update_segment(
             waypoint_index,
@@ -979,10 +985,6 @@ class RouteRecorder(Node):
             )
         )
 
-        # ------------------------------------------------------
-        # Recorder state
-        # ------------------------------------------------------
-
         self.last = (
             x,
             y,
@@ -993,21 +995,23 @@ class RouteRecorder(Node):
         self.force_record = False
 
     # ==========================================================
-    # Segment handling
+    # Segment
     # ==========================================================
 
     def _update_segment(
         self,
-        waypoint_index: int,
-        mode: str,
-    ) -> None:
+        waypoint_index,
+        mode,
+    ):
 
         if (
             self.current_segment_mode
             is None
         ):
 
-            self.current_segment_mode = mode
+            self.current_segment_mode = (
+                mode
+            )
 
             self.current_segment_start = (
                 waypoint_index
@@ -1061,8 +1065,7 @@ class RouteRecorder(Node):
         self.get_logger().info(
             "Segment complete: "
             f"{segment_id} "
-            f"mode="
-            f"{self.current_segment_mode} "
+            f"mode={self.current_segment_mode} "
             f"index="
             f"{self.current_segment_start}"
             f"~{previous_end}"
@@ -1094,12 +1097,16 @@ class RouteRecorder(Node):
 
     def _write_metadata(
         self,
-    ) -> None:
+    ):
 
-        if self.origin is None:
+        if (
+            self.origin
+            is None
+        ):
             return
 
         metadata = {
+
             "format_version":
                 1,
 
@@ -1149,7 +1156,7 @@ class RouteRecorder(Node):
     def _write_segment_metadata(
         self,
         current_end_index=None,
-    ) -> None:
+    ):
 
         if (
             self.count == 0
@@ -1225,6 +1232,7 @@ class RouteRecorder(Node):
         )
 
         data = {
+
             "goal_index":
                 goal_index,
 
@@ -1250,7 +1258,7 @@ class RouteRecorder(Node):
 
     def destroy_node(
         self,
-    ) -> None:
+    ):
 
         if (
             self.count > 0
@@ -1290,10 +1298,16 @@ class RouteRecorder(Node):
                 }
             )
 
-            self.current_segment_mode = None
-            self.current_segment_start = None
+            self.current_segment_mode = (
+                None
+            )
+
+            self.current_segment_start = (
+                None
+            )
 
             data = {
+
                 "goal_index":
                     final_end,
 
@@ -1328,7 +1342,7 @@ class RouteRecorder(Node):
         super().destroy_node()
 
 
-def main() -> None:
+def main():
 
     rclpy.init()
 
@@ -1349,6 +1363,7 @@ def main() -> None:
         node.destroy_node()
 
         if rclpy.ok():
+
             rclpy.shutdown()
 
 

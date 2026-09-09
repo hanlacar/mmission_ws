@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPS 경로 편집기 - 분기/조향 검증 통합</title>
+<style>
+:root{
+  --bg:#0f1419; --panel:#1a2129; --panel2:#232d38; --line:#2f3d4a;
+  --ink:#e6edf3; --dim:#8b9aa8; --fwd:#4fc3f7; --rev:#ffb74d;
+  --bad:#ff5252; --sel:#b388ff; --grid:#1e2831; --accent:#5eead4;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:13px}
+#app{display:grid;grid-template-columns:350px 1fr;height:100vh}
+#side{background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;padding:16px}
+#stage{position:relative;overflow:hidden}
+canvas{display:block;cursor:crosshair}
+h1{font-size:15px;margin:0 0 4px;letter-spacing:.5px}
+.sub{color:var(--dim);font-size:11px;margin-bottom:16px;line-height:1.5}
+.grp{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:12px;background:var(--panel2)}
+.grp h2{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin:0 0 10px}
+label{display:block;font-size:11px;color:var(--dim);margin:8px 0 3px}
+input[type=number],input[type=text],select{width:100%;background:var(--bg);border:1px solid var(--line);
+  color:var(--ink);padding:6px 8px;border-radius:5px;font-family:inherit;font-size:12px}
+button{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--ink);padding:8px;
+  border-radius:6px;cursor:pointer;font-family:inherit;font-size:12px;margin-top:6px}
+button:hover{background:var(--line);border-color:var(--accent)}
+button.primary,button.active{background:var(--accent);color:#05201c;border-color:var(--accent);font-weight:600}
+button.danger:hover{border-color:var(--bad);color:var(--bad)}
+.row{display:flex;gap:6px}.row>*{flex:1}
+.stat{display:flex;justify-content:space-between;padding:3px 0;font-size:11px;border-bottom:1px dashed var(--line)}
+.stat:last-child{border:0}.stat b{font-weight:600}.warn{color:var(--bad)}.ok{color:var(--accent)}
+.hint{font-size:10px;color:var(--dim);line-height:1.6;margin-top:8px}
+.note{font-size:10px;color:#bed0dc;line-height:1.55;background:#10202a;border-left:3px solid var(--accent);
+  padding:7px 8px;margin-top:8px}
+.legend{display:flex;gap:10px;font-size:10px;margin-top:8px;flex-wrap:wrap}.legend span{display:flex;align-items:center;gap:4px;color:var(--dim)}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+#segmentList{max-height:260px;overflow:auto;margin-top:8px;border-top:1px solid var(--line)}
+.segRow{display:grid;grid-template-columns:22px 1fr 58px;gap:6px;align-items:center;padding:5px 0;border-bottom:1px solid #26343e}
+.segRow input{width:auto}.segName{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px}
+.segCount{text-align:right;color:var(--dim);font-size:10px}
+#toolbar{position:absolute;top:12px;left:12px;display:flex;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px}
+#toolbar button{width:auto;margin:0;padding:6px 12px;font-size:11px}
+#coords{position:absolute;bottom:12px;left:12px;font-size:11px;color:var(--dim);background:var(--panel);
+  border:1px solid var(--line);border-radius:6px;padding:4px 10px}
+#selinfo{position:absolute;top:12px;right:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:12px;width:210px;display:none}
+#selinfo.show{display:block}#selinfo h3{margin:0 0 8px;font-size:11px;color:var(--sel)}
+#badList{max-height:120px;overflow:auto;font-size:10px;color:var(--dim);margin-top:6px}
+.badItem{display:flex;justify-content:space-between;border-bottom:1px dashed var(--line);padding:2px 0}
+@media(max-width:900px){#app{grid-template-columns:1fr;grid-template-rows:auto 70vh}#side{border-right:0;border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="side">
+    <h1>GPS 경로 편집기</h1>
+    <div class="sub">
+      분기 경로는 <b>segment_id별 독립 선</b>으로 유지합니다.
+      T_A/T_B, V_A/V_B처럼 같은 공통점에 붙은 경로끼리 서로 직선 연결하지 않습니다.
+    </div>
+
+    <div class="grp">
+      <h2>1. 불러오기</h2>
+      <label>CSV</label>
+      <input type="file" id="fileInput" accept=".csv,text/csv" multiple style="font-size:11px">
+      <div class="hint">
+        NETWORK_ALL_BRANCHES.csv 권장.<br>
+        segment_id가 있으면 각 segment를 별도 경로로 처리합니다.
+      </div>
+    </div>
+
+    <div class="grp">
+      <h2>2. 분기/세그먼트</h2>
+      <label>점 추가 대상 세그먼트</label>
+      <select id="activeSegment"></select>
+      <div id="segmentList"></div>
+      <div class="row">
+        <button id="showAllBtn">전체 표시</button>
+        <button id="hideAllBtn">전체 숨김</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h2>3. 차량 제원 / 이동 가능 판정</h2>
+      <div class="row">
+        <div><label>축거 (m)</label><input type="number" id="wheelbase" value="0.73" min="0.01" step="0.01"></div>
+        <div><label>최대조향 (°)</label><input type="number" id="maxsteer" value="22" min="1" max="89" step="1"></div>
+      </div>
+      <div class="stat" style="margin-top:8px"><span>최소 회전반경</span><b id="minRadius">–</b></div>
+      <div class="stat"><span>이동 불가능 점</span><b id="badCount" class="ok">0</b></div>
+      <div class="hint">
+        세 점의 외접원 반경이 <b>축거 / tan(최대조향)</b>보다 작으면 빨간색으로 표시합니다.
+        다른 segment 사이에서는 곡률을 계산하지 않습니다.
+      </div>
+      <div id="badList"></div>
+    </div>
+
+    <div class="grp">
+      <h2>4. 점 간격 재설정</h2>
+      <label>목표 간격 (m)</label>
+      <input type="number" id="spacing" value="0.20" min="0.02" step="0.05">
+      <div class="row">
+        <button id="resampleActiveBtn">선택 세그먼트</button>
+        <button id="resampleVisibleBtn">보이는 세그먼트</button>
+      </div>
+      <div class="hint">
+        각 세그먼트를 <b>독립적으로</b> 재샘플링합니다. 서로 다른 분기 사이를 이어붙이지 않습니다.
+      </div>
+    </div>
+
+    <div class="grp">
+      <h2>5. 색상 기준</h2>
+      <div class="row">
+        <button id="colorDir" class="active">방향별</button>
+        <button id="colorMode">mode별</button>
+      </div>
+      <div id="modeLegend" class="legend"></div>
+    </div>
+
+    <div class="grp">
+      <h2>6. 통계</h2>
+      <div class="stat"><span>세그먼트</span><b id="segCount">0</b></div>
+      <div class="stat"><span>점 개수</span><b id="ptCount">0</b></div>
+      <div class="stat"><span>전체 길이</span><b id="totalLen">0 m</b></div>
+      <div class="stat"><span>전진 / 후진</span><b id="dirCount">0 / 0</b></div>
+    </div>
+
+    <div class="grp">
+      <h2>7. 내보내기</h2>
+      <label>파일 이름</label>
+      <input type="text" id="outName" value="route_network_segmented.csv">
+      <label style="display:flex;align-items:center;gap:6px;margin-top:8px">
+        <input type="checkbox" id="visibleOnly" style="width:auto"> 현재 보이는 세그먼트만 저장
+      </label>
+      <button class="primary" id="exportBtn">분기 CSV + YAML 내보내기</button>
+      <div class="hint">
+        segment_id를 보존합니다. 서로 다른 분기의 끝점/시작점을 한 선으로 연결하지 않습니다.
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><i class="dot" style="background:var(--fwd)"></i>전진</span>
+      <span><i class="dot" style="background:var(--rev)"></i>후진</span>
+      <span><i class="dot" style="background:var(--bad)"></i>이동 불가능</span>
+      <span><i class="dot" style="background:var(--sel)"></i>선택</span>
+    </div>
+  </div>
+
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="toolbar">
+      <button id="toolMove" class="active">이동</button>
+      <button id="toolAdd">점 추가</button>
+      <button id="toolDel">점 삭제</button>
+      <button id="fitBtn">화면맞춤</button>
+    </div>
+
+    <div id="selinfo">
+      <h3>선택한 점</h3>
+      <div class="stat"><span>segment</span><b id="selSegment">–</b></div>
+      <div class="stat"><span>index</span><b id="selIdx">–</b></div>
+      <label>방향</label>
+      <select id="selDir"><option value="1">전진 (1)</option><option value="-1">후진 (-1)</option></select>
+      <label>mode</label>
+      <input type="text" id="selMode" value="1">
+      <label>drive_level</label>
+      <select id="selDrive"><option>1</option><option>2</option><option>3</option></select>
+      <label>event</label>
+      <input type="text" id="selEvent" value="NONE">
+      <button class="danger" id="selDelBtn">이 점 삭제</button>
+    </div>
+
+    <div id="coords">–</div>
+  </div>
+</div>
+
+<script>
+const LAT_M_PER_DEG = 111320.0;
+
+let segments = []; // {id,type,fromNode,toNode,visible,pts:[{x,y,lat,lon,dir,mode,drive,event}]}
+let origin = null;
+let selected = null; // {segIndex, pointIndex}
+let tool = 'move';
+let colorBy = 'dir';
+let view = {scale:40, ox:0, oy:0};
+let draggingPoint=false, panning=false, lastMouse={x:0,y:0};
+
+const MODE_COLORS = {
+  '1':'#4fc3f7','2':'#ffca28','3':'#66bb6a','4':'#ff7043','5':'#26a69a',
+  '6':'#5c6bc0','7':'#ab47bc','8':'#8d6e63','9':'#d4e157','10':'#ec407a','11':'#26c6da',
+  'NORMAL':'#4fc3f7','SLOPE':'#ffca28','T_PARK':'#ab47bc','PARALLEL_PARK':'#ec407a'
+};
+const AUTO_PALETTE=['#78909c','#9ccc65','#5c6bc0','#d4e157','#26a69a','#8d6e63'];
+let autoAssigned={};
+
+const cv=document.getElementById('cv');
+const ctx=cv.getContext('2d');
+const stage=document.getElementById('stage');
+
+function getCSS(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}
+function modeColor(m){
+  const k=String(m||'1');
+  if(MODE_COLORS[k]) return MODE_COLORS[k];
+  if(!autoAssigned[k]) autoAssigned[k]=AUTO_PALETTE[Object.keys(autoAssigned).length%AUTO_PALETTE.length];
+  return autoAssigned[k];
+}
+function pointColor(p){
+  return colorBy==='mode' ? modeColor(p.mode) : (p.dir<0 ? getCSS('--rev') : getCSS('--fwd'));
+}
+
+function resize(){
+  cv.width=stage.clientWidth;
+  cv.height=stage.clientHeight;
+  draw();
+}
+window.addEventListener('resize',resize);
+
+function worldToScreen(x,y){
+  return {sx:cv.width/2+(x-view.ox)*view.scale, sy:cv.height/2-(y-view.oy)*view.scale};
+}
+function screenToWorld(sx,sy){
+  return {x:(sx-cv.width/2)/view.scale+view.ox, y:-(sy-cv.height/2)/view.scale+view.oy};
+}
+
+function minRadius(){
+  const wb=Math.max(0.001,parseFloat(document.getElementById('wheelbase').value)||0.73);
+  const ms=Math.min(89,Math.max(0.1,parseFloat(document.getElementById('maxsteer').value)||22));
+  return wb/Math.tan(ms*Math.PI/180);
+}
+function circumRadius(a,b,c){
+  const ab=Math.hypot(b.x-a.x,b.y-a.y);
+  const bc=Math.hypot(c.x-b.x,c.y-b.y);
+  const ca=Math.hypot(a.x-c.x,a.y-c.y);
+  const area2=Math.abs((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x));
+  if(area2<1e-9) return Infinity;
+  return ab*bc*ca/(2*area2);
+}
+function computeBadBySegment(seg){
+  const bad=new Array(seg.pts.length).fill(false);
+  const rmin=minRadius();
+  for(let i=1;i<seg.pts.length-1;i++){
+    if(circumRadius(seg.pts[i-1],seg.pts[i],seg.pts[i+1])<rmin) bad[i]=true;
+  }
+  return bad;
+}
+
+function drawGrid(){
+  ctx.strokeStyle=getCSS('--grid');ctx.lineWidth=1;
+  const step=Math.max(8,view.scale);
+  const x0=cv.width/2-view.ox*view.scale;
+  const y0=cv.height/2+view.oy*view.scale;
+  ctx.globalAlpha=.5;
+  for(let x=x0%step;x<cv.width;x+=step){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,cv.height);ctx.stroke()}
+  for(let y=y0%step;y<cv.height;y+=step){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(cv.width,y);ctx.stroke()}
+  ctx.globalAlpha=1;
+}
+
+function draw(){
+  ctx.clearRect(0,0,cv.width,cv.height);
+  drawGrid();
+
+  if(!segments.length){
+    ctx.fillStyle=getCSS('--dim');ctx.font='14px monospace';ctx.textAlign='center';
+    ctx.fillText('CSV를 불러오세요',cv.width/2,cv.height/2);ctx.textAlign='left';
+    updateStats();return;
+  }
+
+  for(let si=0;si<segments.length;si++){
+    const seg=segments[si];
+    if(!seg.visible||!seg.pts.length) continue;
+    const bad=computeBadBySegment(seg);
+
+    // 기본 경로 선
+    ctx.lineWidth=2;
+    for(let i=0;i<seg.pts.length-1;i++){
+      const a=worldToScreen(seg.pts[i].x,seg.pts[i].y);
+      const b=worldToScreen(seg.pts[i+1].x,seg.pts[i+1].y);
+      ctx.strokeStyle=pointColor(seg.pts[i+1]);
+      ctx.globalAlpha=.62;
+      ctx.beginPath();ctx.moveTo(a.sx,a.sy);ctx.lineTo(b.sx,b.sy);ctx.stroke();
+    }
+    ctx.globalAlpha=1;
+
+    // 이동 불가능 구간은 선도 빨간색으로 겹쳐 표시
+    ctx.strokeStyle=getCSS('--bad');ctx.lineWidth=4;ctx.globalAlpha=.9;
+    for(let i=0;i<seg.pts.length-1;i++){
+      if(!(bad[i]||bad[i+1])) continue;
+      const a=worldToScreen(seg.pts[i].x,seg.pts[i].y);
+      const b=worldToScreen(seg.pts[i+1].x,seg.pts[i+1].y);
+      ctx.beginPath();ctx.moveTo(a.sx,a.sy);ctx.lineTo(b.sx,b.sy);ctx.stroke();
+    }
+    ctx.globalAlpha=1;
+
+    // mode 경계
+    for(let i=1;i<seg.pts.length;i++){
+      if(String(seg.pts[i].mode)!==String(seg.pts[i-1].mode)){
+        const p=worldToScreen(seg.pts[i].x,seg.pts[i].y);
+        ctx.strokeStyle='#fff';ctx.lineWidth=1.3;
+        ctx.save();ctx.translate(p.sx,p.sy);ctx.rotate(Math.PI/4);ctx.strokeRect(-6,-6,12,12);ctx.restore();
+      }
+    }
+
+    // 점
+    for(let i=0;i<seg.pts.length;i++){
+      const p=worldToScreen(seg.pts[i].x,seg.pts[i].y);
+      let r=3.5, color=pointColor(seg.pts[i]);
+      if(selected&&selected.segIndex===si&&selected.pointIndex===i){color=getCSS('--sel');r=6}
+      else if(bad[i]){color=getCSS('--bad');r=5.5}
+      ctx.fillStyle=color;ctx.beginPath();ctx.arc(p.sx,p.sy,r,0,Math.PI*2);ctx.fill();
+      if(bad[i]){
+        ctx.strokeStyle=getCSS('--bad');ctx.lineWidth=1.3;
+        ctx.beginPath();ctx.arc(p.sx,p.sy,r+4,0,Math.PI*2);ctx.stroke();
+      }
+    }
+
+    // 활성 세그먼트에만 시작/끝 표시
+    if(seg.id===document.getElementById('activeSegment').value && seg.pts.length){
+      markEnd(seg.pts[0],'S');markEnd(seg.pts[seg.pts.length-1],'E');
+    }
+  }
+  updateStats();
+}
+function markEnd(pt,label){
+  const p=worldToScreen(pt.x,pt.y);
+  ctx.fillStyle=getCSS('--ink');ctx.font='bold 11px monospace';
+  ctx.fillText(label,p.sx+7,p.sy-7);
+}
+
+function updateStats(){
+  document.getElementById('minRadius').textContent=minRadius().toFixed(2)+' m';
+  const visible=segments.filter(s=>s.visible);
+  document.getElementById('segCount').textContent=visible.length;
+
+  let npt=0,len=0,fwd=0,rev=0,badTotal=0;
+  const badBySeg=[];
+
+  for(const s of visible){
+    npt+=s.pts.length;
+    for(let i=1;i<s.pts.length;i++) len+=Math.hypot(s.pts[i].x-s.pts[i-1].x,s.pts[i].y-s.pts[i-1].y);
+    for(const p of s.pts){if(p.dir<0)rev++;else fwd++}
+    const bad=computeBadBySegment(s);
+    const n=bad.filter(Boolean).length;
+    badTotal+=n;
+    if(n) badBySeg.push([s.id,n]);
+  }
+  document.getElementById('ptCount').textContent=npt;
+  document.getElementById('totalLen').textContent=len.toFixed(2)+' m';
+  document.getElementById('dirCount').textContent=fwd+' / '+rev;
+
+  const be=document.getElementById('badCount');
+  be.textContent=badTotal;be.className=badTotal?'warn':'ok';
+
+  const list=document.getElementById('badList');
+  list.innerHTML=badBySeg.map(([id,n])=>`<div class="badItem"><span>${escapeHtml(id)}</span><b class="warn">${n}</b></div>`).join('');
+  updateModeLegend();
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+
+function parseCSV(text){
+  const rows=[];let row=[],cell='',q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){
+      if(c==='"'&&text[i+1]==='"'){cell+='"';i++}
+      else if(c==='"')q=false;
+      else cell+=c;
+    }else{
+      if(c==='"')q=true;
+      else if(c===','){row.push(cell);cell=''}
+      else if(c==='\n'){row.push(cell.replace(/\r$/,''));rows.push(row);row=[];cell=''}
+      else cell+=c;
+    }
+  }
+  if(cell.length||row.length){row.push(cell.replace(/\r$/,''));rows.push(row)}
+  if(!rows.length)return[];
+  const header=rows[0].map(s=>s.trim());
+  return rows.slice(1).filter(r=>r.some(v=>(v||'').trim()!=='')).map(r=>{
+    const o={};header.forEach((h,i)=>o[h]=(r[i]??'').trim());return o;
+  });
+}
+function num(v){const n=Number(v);return Number.isFinite(n)?n:null}
+
+async function loadFiles(files){
+  segments=[];selected=null;origin=null;
+  let fallbackIndex=1;
+
+  for(const f of files){
+    const rows=parseCSV(await f.text());
+    if(!rows.length) continue;
+
+    if(!origin){
+      const first=rows.find(r=>num(r.latitude)!==null&&num(r.longitude)!==null);
+      if(first) origin={lat:num(first.latitude),lon:num(first.longitude)};
+    }
+
+    const map=new Map();
+    for(const r of rows){
+      const sid=(r.segment_id||r.route_id||f.name.replace(/\.csv$/i,'')||`SEG_${fallbackIndex}`).trim();
+      if(!map.has(sid)) map.set(sid,[]);
+
+      let x=num(r.x_m),y=num(r.y_m);
+      const lat=num(r.latitude),lon=num(r.longitude);
+      if((x===null||y===null)&&origin&&lat!==null&&lon!==null){
+        x=(lon-origin.lon)*LAT_M_PER_DEG*Math.cos(origin.lat*Math.PI/180);
+        y=(lat-origin.lat)*LAT_M_PER_DEG;
+      }
+      if(x===null||y===null) continue;
+
+      map.get(sid).push({
+        x,y,lat,lon,
+        dir:(parseInt(r.direction)||1)<0?-1:1,
+        mode:(r.mode||'1').trim(),
+        drive:parseFloat(r.drive_level)||2,
+        event:(r.event||'NONE').trim(),
+        segment_type:(r.segment_type||'').trim(),
+        from_node:(r.from_node||'').trim(),
+        to_node:(r.to_node||'').trim()
+      });
+    }
+
+    for(const [id,pts] of map.entries()){
+      segments.push({
+        id,
+        type:pts[0]?.segment_type||'',
+        fromNode:pts[0]?.from_node||'',
+        toNode:pts[0]?.to_node||'',
+        visible:!/_REVERSE$/i.test(id),
+        pts
+      });
+    }
+    fallbackIndex++;
+  }
+
+  if(!origin) origin={lat:0,lon:0};
+  normalizeSegmentIds();
+  refreshSegmentControls();
+  fitView();
+}
+function normalizeSegmentIds(){
+  const used={};
+  for(const s of segments){
+    const base=s.id;
+    used[base]=(used[base]||0)+1;
+    if(used[base]>1)s.id=`${base}_${used[base]}`;
+  }
+}
+
+function refreshSegmentControls(){
+  const list=document.getElementById('segmentList');
+  const active=document.getElementById('activeSegment');
+  const old=active.value;
+  list.innerHTML='';active.innerHTML='';
+
+  segments.forEach((s,si)=>{
+    const opt=document.createElement('option');opt.value=s.id;opt.textContent=s.id;active.appendChild(opt);
+
+    const row=document.createElement('div');row.className='segRow';
+    const cb=document.createElement('input');cb.type='checkbox';cb.checked=s.visible;
+    cb.onchange=()=>{s.visible=cb.checked;draw()};
+    const nm=document.createElement('div');nm.className='segName';nm.textContent=s.id;
+    nm.title=s.id;
+    nm.onclick=()=>{active.value=s.id;draw()};
+    const ct=document.createElement('div');ct.className='segCount';ct.textContent=s.pts.length+' pts';
+    row.append(cb,nm,ct);list.appendChild(row);
+  });
+
+  if([...active.options].some(o=>o.value===old))active.value=old;
+  else if(active.options.length)active.selectedIndex=0;
+  active.onchange=draw;
+}
+
+function fitView(){
+  const vis=segments.filter(s=>s.visible).flatMap(s=>s.pts);
+  if(!vis.length){draw();return}
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  vis.forEach(p=>{minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minY=Math.min(minY,p.y);maxY=Math.max(maxY,p.y)});
+  const w=maxX-minX||1,h=maxY-minY||1;
+  view.scale=Math.min(cv.width/(w*1.25),cv.height/(h*1.25));
+  view.scale=Math.max(2,Math.min(view.scale,500));
+  view.ox=(minX+maxX)/2;view.oy=(minY+maxY)/2;
+  draw();
+}
+
+function hitTest(sx,sy){
+  let best=null,bestD=10;
+  for(let si=0;si<segments.length;si++){
+    const s=segments[si];if(!s.visible)continue;
+    for(let pi=0;pi<s.pts.length;pi++){
+      const q=worldToScreen(s.pts[pi].x,s.pts[pi].y);
+      const d=Math.hypot(q.sx-sx,q.sy-sy);
+      if(d<bestD){bestD=d;best={segIndex:si,pointIndex:pi}}
+    }
+  }
+  return best;
+}
+function distToSeg(p,a,b){
+  const dx=b.x-a.x,dy=b.y-a.y,L2=dx*dx+dy*dy;
+  if(L2===0)return Math.hypot(p.x-a.x,p.y-a.y);
+  let t=((p.x-a.x)*dx+(p.y-a.y)*dy)/L2;t=Math.max(0,Math.min(1,t));
+  return Math.hypot(p.x-(a.x+t*dx),p.y-(a.y+t*dy));
+}
+function nearestInsertTarget(w){
+  let best=null,bestD=Infinity;
+  for(let si=0;si<segments.length;si++){
+    const s=segments[si];if(!s.visible||s.pts.length<2)continue;
+    for(let i=0;i<s.pts.length-1;i++){
+      const d=distToSeg(w,s.pts[i],s.pts[i+1]);
+      if(d<bestD){bestD=d;best={segIndex:si,insertAt:i+1}}
+    }
+  }
+  return {best,bestD};
+}
+
+cv.addEventListener('mousedown',e=>{
+  const r=cv.getBoundingClientRect();
+  const sx=e.clientX-r.left,sy=e.clientY-r.top;
+  lastMouse={x:sx,y:sy};
+
+  if(e.button===1||e.shiftKey){panning=true;return}
+  const hit=hitTest(sx,sy);
+
+  if(tool==='move'){
+    if(hit){
+      selected=hit;draggingPoint=true;
+      document.getElementById('activeSegment').value=segments[hit.segIndex].id;
+      showSelected();
+    }else{
+      selected=null;hideSelected();panning=true;
+    }
+  }else if(tool==='del'){
+    if(hit){
+      segments[hit.segIndex].pts.splice(hit.pointIndex,1);
+      selected=null;hideSelected();refreshSegmentControls();draw();
+    }
+  }else if(tool==='add'){
+    const w=screenToWorld(sx,sy);
+    const near=nearestInsertTarget(w);
+    let si,insertAt;
+
+    if(near.best&&near.bestD<=1.0){
+      si=near.best.segIndex;insertAt=near.best.insertAt;
+    }else{
+      const activeId=document.getElementById('activeSegment').value;
+      si=segments.findIndex(s=>s.id===activeId);
+      if(si<0)return;
+      insertAt=segments[si].pts.length;
+    }
+
+    const s=segments[si];
+    const ref=s.pts[Math.min(insertAt,s.pts.length-1)]||{dir:1,mode:'1',drive:2,event:'NONE'};
+    s.pts.splice(insertAt,0,{
+      x:w.x,y:w.y,lat:null,lon:null,
+      dir:ref.dir,mode:ref.mode,drive:ref.drive,event:ref.event||'NONE',
+      segment_type:s.type,from_node:s.fromNode,to_node:s.toNode
+    });
+    selected={segIndex:si,pointIndex:insertAt};
+    document.getElementById('activeSegment').value=s.id;
+    showSelected();refreshSegmentControls();draw();
+  }
+});
+
+cv.addEventListener('mousemove',e=>{
+  const r=cv.getBoundingClientRect();
+  const sx=e.clientX-r.left,sy=e.clientY-r.top;
+  const w=screenToWorld(sx,sy);
+  document.getElementById('coords').textContent=`East ${w.x.toFixed(2)}m, North ${w.y.toFixed(2)}m`;
+
+  if(draggingPoint&&selected){
+    const p=segments[selected.segIndex].pts[selected.pointIndex];
+    p.x=w.x;p.y=w.y;p.lat=null;p.lon=null;draw();
+  }else if(panning){
+    view.ox-=(sx-lastMouse.x)/view.scale;
+    view.oy+=(sy-lastMouse.y)/view.scale;
+    lastMouse={x:sx,y:sy};draw();
+  }
+});
+window.addEventListener('mouseup',()=>{draggingPoint=false;panning=false});
+cv.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=cv.getBoundingClientRect(),sx=e.clientX-r.left,sy=e.clientY-r.top;
+  const before=screenToWorld(sx,sy);
+  view.scale*=e.deltaY<0?1.1:.9;
+  view.scale=Math.max(2,Math.min(view.scale,600));
+  const after=screenToWorld(sx,sy);
+  view.ox+=before.x-after.x;view.oy+=before.y-after.y;draw();
+},{passive:false});
+
+function setTool(t){
+  tool=t;
+  ['Move','Add','Del'].forEach(n=>document.getElementById('tool'+n).classList.remove('active'));
+  document.getElementById('tool'+t[0].toUpperCase()+t.slice(1)).classList.add('active');
+  cv.style.cursor=t==='add'?'copy':t==='del'?'not-allowed':'crosshair';
+}
+document.getElementById('toolMove').onclick=()=>setTool('move');
+document.getElementById('toolAdd').onclick=()=>setTool('add');
+document.getElementById('toolDel').onclick=()=>setTool('del');
+document.getElementById('fitBtn').onclick=fitView;
+
+function showSelected(){
+  if(!selected)return hideSelected();
+  const s=segments[selected.segIndex],p=s.pts[selected.pointIndex];
+  document.getElementById('selinfo').classList.add('show');
+  document.getElementById('selSegment').textContent=s.id;
+  document.getElementById('selIdx').textContent=selected.pointIndex;
+  document.getElementById('selDir').value=p.dir<0?'-1':'1';
+  document.getElementById('selMode').value=p.mode;
+  document.getElementById('selDrive').value=String(Math.round(p.drive));
+  document.getElementById('selEvent').value=p.event||'NONE';
+}
+function hideSelected(){document.getElementById('selinfo').classList.remove('show')}
+document.getElementById('selDir').onchange=e=>{if(selected){segments[selected.segIndex].pts[selected.pointIndex].dir=parseInt(e.target.value);draw()}};
+document.getElementById('selMode').oninput=e=>{if(selected){segments[selected.segIndex].pts[selected.pointIndex].mode=e.target.value;draw()}};
+document.getElementById('selDrive').onchange=e=>{if(selected){segments[selected.segIndex].pts[selected.pointIndex].drive=parseFloat(e.target.value);draw()}};
+document.getElementById('selEvent').oninput=e=>{if(selected){segments[selected.segIndex].pts[selected.pointIndex].event=e.target.value}};
+document.getElementById('selDelBtn').onclick=()=>{
+  if(!selected)return;
+  segments[selected.segIndex].pts.splice(selected.pointIndex,1);
+  selected=null;hideSelected();refreshSegmentControls();draw();
+};
+
+function resampleSegment(seg,spacing){
+  if(seg.pts.length<2)return;
+  const src=seg.pts;
+  const cum=[0];
+  for(let i=1;i<src.length;i++)cum.push(cum[i-1]+Math.hypot(src[i].x-src[i-1].x,src[i].y-src[i-1].y));
+  const total=cum[cum.length-1];
+  if(total<=0)return;
+
+  const out=[];
+  for(let d=0;d<total;d+=spacing){
+    let j=1;
+    while(j<cum.length&&cum[j]<d)j++;
+    j=Math.min(j,cum.length-1);
+    const a=src[j-1],b=src[j];
+    const span=Math.max(1e-9,cum[j]-cum[j-1]);
+    const t=(d-cum[j-1])/span;
+    const ref=t<.5?a:b;
+    out.push({
+      x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,lat:null,lon:null,
+      dir:ref.dir,mode:ref.mode,drive:ref.drive,event:ref.event||'NONE',
+      segment_type:seg.type,from_node:seg.fromNode,to_node:seg.toNode
+    });
+  }
+  const last=src[src.length-1];
+  if(!out.length||Math.hypot(out[out.length-1].x-last.x,out[out.length-1].y-last.y)>1e-4)out.push({...last});
+  seg.pts=out;
+}
+document.getElementById('resampleActiveBtn').onclick=()=>{
+  const spacing=Math.max(.02,parseFloat(document.getElementById('spacing').value)||.2);
+  const id=document.getElementById('activeSegment').value;
+  const s=segments.find(x=>x.id===id);if(!s)return;
+  resampleSegment(s,spacing);selected=null;hideSelected();refreshSegmentControls();draw();
+};
+document.getElementById('resampleVisibleBtn').onclick=()=>{
+  const spacing=Math.max(.02,parseFloat(document.getElementById('spacing').value)||.2);
+  segments.filter(s=>s.visible).forEach(s=>resampleSegment(s,spacing));
+  selected=null;hideSelected();refreshSegmentControls();draw();
+};
+
+document.getElementById('colorDir').onclick=()=>{
+  colorBy='dir';document.getElementById('colorDir').classList.add('active');document.getElementById('colorMode').classList.remove('active');draw();
+};
+document.getElementById('colorMode').onclick=()=>{
+  colorBy='mode';document.getElementById('colorMode').classList.add('active');document.getElementById('colorDir').classList.remove('active');draw();
+};
+function updateModeLegend(){
+  const box=document.getElementById('modeLegend');
+  if(colorBy!=='mode'){box.innerHTML='<span>파랑=전진 / 주황=후진</span>';return}
+  const modes=[...new Set(segments.filter(s=>s.visible).flatMap(s=>s.pts.map(p=>String(p.mode||'1'))))];
+  box.innerHTML=modes.map(m=>`<span><i class="dot" style="background:${modeColor(m)}"></i>${escapeHtml(m)}</span>`).join('');
+}
+
+document.getElementById('showAllBtn').onclick=()=>{segments.forEach(s=>s.visible=true);refreshSegmentControls();draw()};
+document.getElementById('hideAllBtn').onclick=()=>{segments.forEach(s=>s.visible=false);refreshSegmentControls();draw()};
+document.getElementById('wheelbase').oninput=draw;
+document.getElementById('maxsteer').oninput=draw;
+document.getElementById('fileInput').addEventListener('change',e=>loadFiles([...e.target.files]));
+
+function csvEsc(v){
+  const s=String(v??'');
+  return /[",\n]/.test(s)?`"${s.replaceAll('"','""')}"`:s;
+}
+document.getElementById('exportBtn').onclick=()=>{
+  const onlyVisible=document.getElementById('visibleOnly').checked;
+  const saveSegs=segments.filter(s=>!onlyVisible||s.visible);
+  if(!saveSegs.length){alert('저장할 세그먼트가 없습니다.');return}
+
+  const outName=(document.getElementById('outName').value||'route_network_segmented.csv').replace(/\.csv$/i,'');
+  const lines=[[
+    'segment_id','segment_type','point_index','latitude','longitude','x_m','y_m',
+    'direction','mode','drive_level','event','from_node','to_node'
+  ].join(',')];
+
+  saveSegs.forEach(s=>{
+    s.pts.forEach((p,i)=>{
+      let lat=p.lat,lon=p.lon;
+      if(origin&&origin.lat&&Number.isFinite(origin.lat)){
+        lat=origin.lat+p.y/LAT_M_PER_DEG;
+        lon=origin.lon+p.x/(LAT_M_PER_DEG*Math.cos(origin.lat*Math.PI/180));
+      }
+      lines.push([
+        s.id,s.type,i,
+        Number.isFinite(lat)?lat.toFixed(10):'',
+        Number.isFinite(lon)?lon.toFixed(10):'',
+        p.x.toFixed(6),p.y.toFixed(6),
+        p.dir<0?-1:1,p.mode||'1',
+        [1,2,3].includes(Math.round(p.drive))?Math.round(p.drive):2,
+        p.event||'NONE',s.fromNode,s.toNode
+      ].map(csvEsc).join(','));
+    });
+  });
+
+  const yaml=[
+    'format_version: 2',
+    `origin_lat: ${origin?.lat??0}`,
+    `origin_lon: ${origin?.lon??0}`,
+    'segmented: true',
+    'created_at: route_editor_segmented_full'
+  ].join('\n')+'\n';
+
+  download(outName+'.csv',lines.join('\n'));
+  download(outName+'.yaml',yaml);
+};
+function download(name,text){
+  const blob=new Blob([text],{type:'text/plain;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href);
+}
+
+resize();
+setTool('move');
+</script>
+</body>
+</html>

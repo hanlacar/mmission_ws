@@ -1,0 +1,14 @@
+goal_index: 488
+segments:
+- id: SEG01
+  mode: '1'
+  start_index: 0
+  end_index: 219
+- id: SEG02
+  mode: '2'
+  start_index: 220
+  end_index: 286
+- id: SEG03
+  mode: '3'
+  start_index: 287
+  end_index: 488

@@ -1,0 +1,8 @@
+format_version: 1
+loop: false
+created_at: '2026-09-03T16:11:30.423187+00:00'
+contains_dr: true
+gps_optional: true
+odom_source_topic: /odom
+origin_lat: 35.54493083333333
+origin_lon: 129.2550545

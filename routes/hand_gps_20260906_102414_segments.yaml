@@ -1,0 +1,18 @@
+goal_index: 703
+segments:
+- id: SEG01
+  mode: '1'
+  start_index: 0
+  end_index: 107
+- id: SEG02
+  mode: '2'
+  start_index: 108
+  end_index: 280
+- id: SEG03
+  mode: '3'
+  start_index: 281
+  end_index: 628
+- id: SEG04
+  mode: '4'
+  start_index: 629
+  end_index: 703

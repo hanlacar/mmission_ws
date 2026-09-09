@@ -256,8 +256,8 @@ class DrRouteFollower(Node):
             reader = csv.DictReader(f)
 
             required = {
-                'x_m',
-                'y_m',
+                'dr_x_m',
+                'dr_y_m',
                 'direction',
             }
 
@@ -271,11 +271,11 @@ class DrRouteFollower(Node):
 
             for row in reader:
 
-                x = float(row['x_m'])
-                y = float(row['y_m'])
+                x = float(row['dr_x_m'])
+                y = float(row['dr_y_m'])
 
                 yaw_deg = float(
-                    row.get('yaw_deg', 0.0)
+                    row.get('dr_yaw_deg', 0.0)
                     or 0.0
                 )
 

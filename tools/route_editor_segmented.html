@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPS 경로 편집기 - 분기 지원</title>
+<style>
+:root{
+  --bg:#0d141b; --panel:#17222d; --panel2:#1e2b37; --line:#44c7f4;
+  --text:#e9f0f5; --muted:#91a4b4; --border:#334653; --danger:#ff5a5a;
+  --accent:#58e0d0; --point:#ff5b55; --grid:#18303c;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+body{display:grid;grid-template-columns:390px 1fr;min-height:100vh}
+aside{background:#111b24;border-right:1px solid var(--border);padding:18px;overflow:auto}
+main{position:relative;overflow:hidden}
+h1{font-size:20px;margin:0 0 6px}
+p{color:var(--muted);font-size:13px;line-height:1.5}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;margin:12px 0}
+label{display:block;font-size:13px;margin-bottom:6px;color:#d8e2ea}
+input[type=file],select,input[type=number],input[type=text],button{
+  width:100%;background:#0f1820;color:var(--text);border:1px solid var(--border);
+  border-radius:7px;padding:9px 10px;font-size:14px
+}
+button{cursor:pointer}
+button:hover{border-color:#5d7f92}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.small{font-size:12px;color:var(--muted)}
+#segmentList{max-height:280px;overflow:auto;margin-top:10px}
+.segRow{display:grid;grid-template-columns:24px 1fr 70px;gap:7px;align-items:center;padding:5px 0;border-bottom:1px solid #22333f}
+.segRow input{width:auto}
+.segName{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.segCount{text-align:right;color:var(--muted);font-size:11px}
+.toolbar{position:absolute;top:12px;left:12px;z-index:5;display:flex;gap:8px}
+.toolbar button{width:auto;background:#14212b;padding:8px 12px}
+#canvas{width:100%;height:100%;display:block;background:#0c1218}
+#status{position:absolute;left:12px;bottom:12px;background:#15222dcc;border:1px solid var(--border);padding:6px 10px;border-radius:6px;font-size:12px;color:#b7c9d5}
+#pointPanel{position:absolute;right:12px;top:12px;width:210px;background:#15212c;border:1px solid var(--border);border-radius:10px;padding:12px;display:none}
+#pointPanel .kv{font-size:12px;margin:5px 0;color:#c8d6e0}
+.note{background:#10202a;border-left:3px solid var(--accent);padding:9px 10px;font-size:12px;color:#bdd0dc}
+.danger{color:#ff8c8c}
+@media(max-width:900px){
+  body{grid-template-columns:1fr;grid-template-rows:auto 70vh}
+  aside{max-height:none;border-right:0;border-bottom:1px solid var(--border)}
+}
+</style>
+</head>
+<body>
+<aside>
+  <h1>GPS 경로 편집기</h1>
+  <p>segment_id가 다른 경로는 서로 연결하지 않습니다. 공통 경로와 A/B 미션 경로를 각각 독립 선으로 표시합니다.</p>
+
+  <div class="card">
+    <label>CSV 불러오기</label>
+    <input id="fileInput" type="file" accept=".csv,text/csv" multiple>
+    <p class="small">권장: <b>NETWORK_ALL_BRANCHES.csv</b><br>segment_id가 없으면 파일 하나를 하나의 선으로 처리합니다.</p>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button id="fitBtn">화면맞춤</button>
+      <button id="resetBtn">선택해제</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="saveBtn">CSV 저장</button>
+      <button id="hideAllBtn">전체 숨김</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <label>선 표시</label>
+    <div class="note">A/B 분기는 각각 한 번만 그립니다. <span class="danger">_REVERSE</span> 같은 미리보기용 세그먼트는 기본적으로 숨깁니다.</div>
+    <div id="segmentList"></div>
+  </div>
+
+  <div class="card">
+    <label>표시 설정</label>
+    <div class="row">
+      <div>
+        <label class="small">선 굵기</label>
+        <input id="lineWidth" type="number" value="3" min="1" max="10" step="0.5">
+      </div>
+      <div>
+        <label class="small">점 크기</label>
+        <input id="pointSize" type="number" value="3.2" min="0" max="10" step="0.2">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <p class="small">
+      마우스 휠: 확대/축소<br>
+      좌클릭 드래그: 화면 이동<br>
+      점 클릭: 점 정보 확인
+    </p>
+  </div>
+</aside>
+
+<main>
+  <div class="toolbar">
+    <button id="fitBtn2">화면맞춤</button>
+  </div>
+  <canvas id="canvas"></canvas>
+  <div id="status">CSV를 불러오십시오.</div>
+  <div id="pointPanel">
+    <b>선택한 점</b>
+    <div id="pointInfo"></div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const cvs = document.getElementById('canvas');
+  const ctx = cvs.getContext('2d');
+  const fileInput = document.getElementById('fileInput');
+  const segmentList = document.getElementById('segmentList');
+  const status = document.getElementById('status');
+  const lineWidthInput = document.getElementById('lineWidth');
+  const pointSizeInput = document.getElementById('pointSize');
+  const pointPanel = document.getElementById('pointPanel');
+  const pointInfo = document.getElementById('pointInfo');
+
+  let segments = [];
+  let view = {scale: 1, ox: 0, oy: 0};
+  let dragging = false, dragStart = null, viewStart = null;
+  let selected = null;
+
+  function resize() {
+    const r = cvs.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    cvs.width = Math.max(1, Math.round(r.width*dpr));
+    cvs.height = Math.max(1, Math.round(r.height*dpr));
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    draw();
+  }
+  new ResizeObserver(resize).observe(cvs);
+
+  function parseCSV(text) {
+    const rows = [];
+    let row=[], cell='', q=false;
+    for (let i=0;i<text.length;i++) {
+      const c=text[i];
+      if (q) {
+        if (c === '"' && text[i+1] === '"') { cell+='"'; i++; }
+        else if (c === '"') q=false;
+        else cell+=c;
+      } else {
+        if (c === '"') q=true;
+        else if (c === ',') { row.push(cell); cell=''; }
+        else if (c === '\n') { row.push(cell.replace(/\r$/,'')); rows.push(row); row=[]; cell=''; }
+        else cell+=c;
+      }
+    }
+    if (cell.length || row.length) { row.push(cell.replace(/\r$/,'')); rows.push(row); }
+    if (!rows.length) return [];
+    const header = rows[0].map(x=>x.trim());
+    return rows.slice(1).filter(r=>r.some(v=>v.trim()!=='')).map(r=>{
+      const o={};
+      header.forEach((h,i)=>o[h]=(r[i]??'').trim());
+      return o;
+    });
+  }
+
+  function asNumber(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function getXY(row) {
+    let x = asNumber(row.x_m), y = asNumber(row.y_m);
+    if (x !== null && y !== null) return [x,y];
+
+    const lon = asNumber(row.longitude), lat = asNumber(row.latitude);
+    if (lon !== null && lat !== null) return [lon,lat];
+    return null;
+  }
+
+  function groupRows(rows, fallbackId) {
+    const map = new Map();
+    for (const r of rows) {
+      const sid = (r.segment_id || r.route_id || fallbackId || 'SEGMENT').trim();
+      if (!map.has(sid)) map.set(sid, []);
+      const xy = getXY(r);
+      if (xy) map.get(sid).push({x:xy[0], y:xy[1], raw:r});
+    }
+    return [...map.entries()].map(([id,pts])=>({
+      id, pts,
+      visible: !/_REVERSE$/i.test(id),
+      type: (pts[0]?.raw?.segment_type || '').trim()
+    })).filter(s=>s.pts.length);
+  }
+
+  async function loadFiles(files) {
+    segments = [];
+    for (const f of files) {
+      const text = await f.text();
+      const rows = parseCSV(text);
+      segments.push(...groupRows(rows, f.name.replace(/\.csv$/i,'')));
+    }
+
+    const seen = new Map();
+    segments.forEach(s => {
+      const n = seen.get(s.id) || 0;
+      if (n) s.id = `${s.id} [${n+1}]`;
+      seen.set(s.id.replace(/ \[\d+\]$/,''), n+1);
+    });
+
+    buildSegmentList();
+    fitView();
+    status.textContent = `${segments.length}개 독립 선 / ${segments.reduce((a,s)=>a+s.pts.length,0)}개 점`;
+  }
+
+  function buildSegmentList() {
+    segmentList.innerHTML='';
+    for (const s of segments) {
+      const row=document.createElement('div');
+      row.className='segRow';
+      const cb=document.createElement('input');
+      cb.type='checkbox'; cb.checked=s.visible;
+      cb.addEventListener('change',()=>{s.visible=cb.checked; draw();});
+      const nm=document.createElement('div'); nm.className='segName'; nm.textContent=s.id;
+      const ct=document.createElement('div'); ct.className='segCount'; ct.textContent=`${s.pts.length} pts`;
+      row.append(cb,nm,ct);
+      segmentList.appendChild(row);
+    }
+  }
+
+  function bounds() {
+    const pts = segments.filter(s=>s.visible).flatMap(s=>s.pts);
+    if (!pts.length) return null;
+    let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    for (const p of pts) {
+      minX=Math.min(minX,p.x); maxX=Math.max(maxX,p.x);
+      minY=Math.min(minY,p.y); maxY=Math.max(maxY,p.y);
+    }
+    return {minX,maxX,minY,maxY};
+  }
+
+  function fitView() {
+    const b=bounds(); if (!b) return;
+    const w=cvs.clientWidth, h=cvs.clientHeight, pad=45;
+    const dx=Math.max(1e-9,b.maxX-b.minX), dy=Math.max(1e-9,b.maxY-b.minY);
+    view.scale=Math.min((w-2*pad)/dx,(h-2*pad)/dy);
+    view.ox=w/2-((b.minX+b.maxX)/2)*view.scale;
+    view.oy=h/2+((b.minY+b.maxY)/2)*view.scale;
+    draw();
+  }
+
+  function sx(x){return x*view.scale+view.ox}
+  function sy(y){return -y*view.scale+view.oy}
+  function wx(x){return (x-view.ox)/view.scale}
+  function wy(y){return -(y-view.oy)/view.scale}
+
+  function drawGrid() {
+    const w=cvs.clientWidth,h=cvs.clientHeight;
+    ctx.clearRect(0,0,w,h);
+    ctx.fillStyle='#0c1218'; ctx.fillRect(0,0,w,h);
+
+    const target=70;
+    const worldPerPx=1/view.scale;
+    const raw=target*worldPerPx;
+    const pow=Math.pow(10,Math.floor(Math.log10(raw || 1)));
+    let step=pow;
+    if (raw/pow>5) step=10*pow; else if(raw/pow>2) step=5*pow; else if(raw/pow>1) step=2*pow;
+
+    const x0=Math.floor(wx(0)/step)*step, x1=Math.ceil(wx(w)/step)*step;
+    const y0=Math.floor(wy(h)/step)*step, y1=Math.ceil(wy(0)/step)*step;
+
+    ctx.strokeStyle='#17303a'; ctx.lineWidth=1;
+    ctx.beginPath();
+    for(let x=x0;x<=x1;x+=step){const X=sx(x);ctx.moveTo(X,0);ctx.lineTo(X,h);}
+    for(let y=y0;y<=y1;y+=step){const Y=sy(y);ctx.moveTo(0,Y);ctx.lineTo(w,Y);}
+    ctx.stroke();
+  }
+
+  function segmentColor(s) {
+    // 공통/미션 모두 동일 계열로 보여서 원본 편집기 느낌 유지
+    if (/COMMON/i.test(s.id) || /common/i.test(s.type)) return '#48c8f4';
+    if (/_A(?:$| )/i.test(s.id) || /START_A|T_A|V_A|END_AA|END_AB/i.test(s.id)) return '#52d6ff';
+    if (/_B(?:$| )/i.test(s.id) || /START_B|T_B|V_B|END_BA|END_BB/i.test(s.id)) return '#52d6ff';
+    return '#52d6ff';
+  }
+
+  function draw() {
+    drawGrid();
+    const lw=Number(lineWidthInput.value)||3;
+    const ps=Math.max(0,Number(pointSizeInput.value)||0);
+
+    for (const s of segments) {
+      if (!s.visible || s.pts.length<1) continue;
+
+      ctx.strokeStyle=segmentColor(s);
+      ctx.lineWidth=lw;
+      ctx.lineJoin='round'; ctx.lineCap='round';
+      ctx.beginPath();
+      s.pts.forEach((p,i)=>{
+        const X=sx(p.x),Y=sy(p.y);
+        if(i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y);
+      });
+      ctx.stroke();
+
+      if (ps>0 && view.scale>1.4) {
+        ctx.fillStyle='#48c8f4';
+        for (const p of s.pts) {
+          ctx.beginPath();
+          ctx.arc(sx(p.x),sy(p.y),ps,0,Math.PI*2);
+          ctx.fill();
+        }
+      }
+    }
+
+    if (selected) {
+      ctx.strokeStyle='#ff5c56'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(sx(selected.p.x),sy(selected.p.y),8,0,Math.PI*2); ctx.stroke();
+    }
+  }
+
+  function pickPoint(mx,my) {
+    let best=null,bd=12;
+    for (const s of segments) {
+      if (!s.visible) continue;
+      s.pts.forEach((p,i)=>{
+        const d=Math.hypot(sx(p.x)-mx,sy(p.y)-my);
+        if(d<bd){bd=d;best={s,p,i};}
+      });
+    }
+    selected=best;
+    if(best){
+      pointPanel.style.display='block';
+      const r=best.p.raw;
+      pointInfo.innerHTML=[
+        ['segment',best.s.id],['index',best.i],
+        ['x_m',best.p.x],['y_m',best.p.y],
+        ['mode',r.mode??''],['direction',r.direction??''],
+        ['event',r.event??'']
+      ].map(([k,v])=>`<div class="kv"><b>${k}</b>: ${String(v)}</div>`).join('');
+    } else {
+      pointPanel.style.display='none';
+    }
+    draw();
+  }
+
+  cvs.addEventListener('mousedown',e=>{
+    dragging=true; dragStart={x:e.clientX,y:e.clientY}; viewStart={ox:view.ox,oy:view.oy};
+  });
+  window.addEventListener('mouseup',e=>{
+    if(!dragging)return;
+    const moved=Math.hypot(e.clientX-dragStart.x,e.clientY-dragStart.y);
+    dragging=false;
+    if(moved<4){
+      const r=cvs.getBoundingClientRect();
+      pickPoint(e.clientX-r.left,e.clientY-r.top);
+    }
+  });
+  window.addEventListener('mousemove',e=>{
+    if(!dragging)return;
+    view.ox=viewStart.ox+(e.clientX-dragStart.x);
+    view.oy=viewStart.oy+(e.clientY-dragStart.y);
+    draw();
+  });
+  cvs.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const r=cvs.getBoundingClientRect();
+    const mx=e.clientX-r.left,my=e.clientY-r.top;
+    const beforeX=wx(mx),beforeY=wy(my);
+    const factor=Math.exp(-e.deltaY*0.0012);
+    view.scale=Math.max(0.02,Math.min(10000,view.scale*factor));
+    view.ox=mx-beforeX*view.scale;
+    view.oy=my+beforeY*view.scale;
+    draw();
+  },{passive:false});
+
+  fileInput.addEventListener('change',()=>loadFiles([...fileInput.files]));
+  lineWidthInput.addEventListener('input',draw);
+  pointSizeInput.addEventListener('input',draw);
+  document.getElementById('fitBtn').onclick=fitView;
+  document.getElementById('fitBtn2').onclick=fitView;
+  document.getElementById('resetBtn').onclick=()=>{selected=null;pointPanel.style.display='none';draw();};
+  document.getElementById('hideAllBtn').onclick=()=>{
+    const any=segments.some(s=>s.visible);
+    segments.forEach(s=>s.visible=!any);
+    buildSegmentList(); draw();
+  };
+
+  document.getElementById('saveBtn').onclick=()=>{
+    if(!segments.length)return;
+    const cols=['segment_id','segment_type','point_index','latitude','longitude','x_m','y_m','from_node','to_node'];
+    const esc=v=>{
+      const s=String(v??'');
+      return /[",\n]/.test(s)?`"${s.replaceAll('"','""')}"`:s;
+    };
+    const lines=[cols.join(',')];
+    for(const s of segments){
+      s.pts.forEach((p,i)=>{
+        const r=p.raw||{};
+        const vals=[
+          s.id,r.segment_type||s.type||'',r.point_index||i,
+          r.latitude||'',r.longitude||'',p.x,p.y,r.from_node||'',r.to_node||''
+        ];
+        lines.push(vals.map(esc).join(','));
+      });
+    }
+    const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='route_network_segmented.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  resize();
+})();
+</script>
+</body>
+</html>

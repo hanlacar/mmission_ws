@@ -14,7 +14,7 @@ import pynmea2
 
 
 # ===== 설정 =====
-PORT = "/dev/ttyACM0"
+PORT = "/dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00"
 BAUD = 38400
 
 NTRIP_HOST = "www.gnssdata.or.kr"
