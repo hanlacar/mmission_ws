@@ -1,8 +1,0 @@
-format_version: 1
-origin_lat: 37.288709833333336
-origin_lon: 127.10731466666667
-loop: false
-created_at: '2026-09-06T05:56:39.970791+00:00'
-contains_dr: true
-dr_frame: record_start_relative
-odom_source_topic: /odom

@@ -1,0 +1,50 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Grid
+      Cell Size: 1
+      Plane: XY
+      Plane Cell Count: 100
+      Reference Frame: <Fixed Frame>
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: DR Reference Path
+      Topic: {Value: /dr_viz/reference_path}
+      Color: 0; 255; 0
+      Line Style: Lines
+      Line Width: 0.05
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: Actual Odom Trace
+      Topic: {Value: /dr_viz/actual_path}
+      Color: 0; 180; 255
+      Line Style: Lines
+      Line Width: 0.07
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Vehicle Target Error Status
+      Topic: {Value: /dr_viz/markers}
+  Enabled: true
+  Global Options:
+    Background Color: 25; 25; 25
+    Fixed Frame: odom
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Angle: 0
+      Scale: 35
+      Target Frame: odom
+Window Geometry:
+  Height: 900
+  Width: 1400

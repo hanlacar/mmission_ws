@@ -127,6 +127,9 @@ setup(
         'console_scripts': [
             'odom_route_recorder = mission_manager.odom_route_recorder_node:main',
             'dr_route_follower = mission_manager.dr_route_follower_node:main',
+            'dr_segmented_branch_follower = mission_manager.dr_segmented_branch_follower_node:main',
+            'dr_route_visualizer = mission_manager.dr_route_visualizer_node:main',
+            'dr_odom_sim = mission_manager.dr_odom_sim_node:main',
             'route_recorder = mission_manager.route_recorder_node:main',
             'route_merge = mission_manager.route_merge:main',
             'mission_sequencer = mission_manager.mission_sequencer_node:main',
