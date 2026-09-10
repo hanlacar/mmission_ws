@@ -127,6 +127,8 @@ setup(
         'console_scripts': [
             'odom_route_recorder = mission_manager.odom_route_recorder_node:main',
             'dr_route_follower = mission_manager.dr_route_follower_node:main',
+            't_parking_lidar_selector = mission_manager.t_parking_lidar_selector_node:main',
+            'fake_rear_lidar = mission_manager.fake_rear_lidar_node:main',
             'dr_segmented_branch_follower = mission_manager.dr_segmented_branch_follower_node:main',
             'dr_route_visualizer = mission_manager.dr_route_visualizer_node:main',
             'dr_odom_sim = mission_manager.dr_odom_sim_node:main',

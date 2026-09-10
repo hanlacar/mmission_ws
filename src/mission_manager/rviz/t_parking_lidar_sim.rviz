@@ -1,0 +1,94 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Grid
+      Cell Size: 1
+      Plane: XY
+      Plane Cell Count: 100
+      Reference Frame: <Fixed Frame>
+
+    - Class: rviz_default_plugins/LaserScan
+      Enabled: true
+      Name: Fake Rear LaserScan
+      Topic:
+        Value: /scan_rear
+      Size (m): 0.06
+      Style: Points
+      Decay Time: 0.15
+
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: T_foword
+      Topic:
+        Value: /dr_branch_viz/t_foword
+      Color: 80; 255; 80
+      Line Style: Lines
+      Line Width: 0.05
+
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: T_A candidate
+      Topic:
+        Value: /dr_branch_viz/t_a
+      Color: 255; 100; 255
+      Line Style: Lines
+      Line Width: 0.04
+
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: T_B candidate
+      Topic:
+        Value: /dr_branch_viz/t_b
+      Color: 255; 220; 70
+      Line Style: Lines
+      Line Width: 0.04
+
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: Selected Active Path
+      Topic:
+        Value: /dr_branch_viz/active_path
+      Color: 0; 255; 255
+      Line Style: Lines
+      Line Width: 0.09
+
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: Actual Odom Trace
+      Topic:
+        Value: /dr_branch_viz/actual_path
+      Color: 255; 255; 255
+      Line Style: Lines
+      Line Width: 0.07
+
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Vehicle Status
+      Topic:
+        Value: /dr_branch_viz/markers
+
+  Enabled: true
+  Global Options:
+    Background Color: 25; 25; 25
+    Fixed Frame: odom
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Angle: 0
+      Scale: 35
+      Target Frame: odom
+Window Geometry:
+  Height: 900
+  Width: 1400
