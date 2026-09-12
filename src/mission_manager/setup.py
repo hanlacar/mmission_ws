@@ -125,6 +125,9 @@ setup(
 
     entry_points={
         'console_scripts': [
+            'end_branch_adapter = mission_manager.end_branch_adapter_node:main',
+            'real_parking_slot_selector = mission_manager.real_parking_slot_selector_node:main',
+            'dr_real_segmented_follower = mission_manager.dr_real_segmented_follower_node:main',
             'odom_route_recorder = mission_manager.odom_route_recorder_node:main',
             'dr_route_follower = mission_manager.dr_route_follower_node:main',
             't_parking_lidar_selector = mission_manager.t_parking_lidar_selector_node:main',

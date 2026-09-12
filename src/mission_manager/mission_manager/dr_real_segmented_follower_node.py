@@ -1,0 +1,992 @@
+#!/usr/bin/env python3
+"""
+Real-vehicle segmented DR route follower.
+
+Design basis:
+- route_network_segmented_10.csv
+- /odom for dead-reckoning pose
+- /t_parking/selected_slot -> T_A | T_B
+- /parallel_parking/selected_slot -> V_A | V_B
+- /mission/intersection_go for mode 4/6/8 and the first END_common stop
+- optional end_branch_topic (String END_AA|END_AB); when unset/unavailable,
+  the last END_common STOP_LINE falls back to END_AA after end_wait_sec.
+
+No simulator/fake sensor source is used by this node.
+"""
+
+import csv
+import math
+import os
+import time
+from pathlib import Path
+
+import rclpy
+from nav_msgs.msg import Odometry
+from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import Bool, Float32, Int32, String
+from std_srvs.srv import Trigger
+
+
+def norm_angle(a: float) -> float:
+    return math.atan2(math.sin(a), math.cos(a))
+
+
+def yaw_from_quat(q) -> float:
+    siny = 2.0 * (q.w * q.z + q.x * q.y)
+    cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+    return math.atan2(siny, cosy)
+
+
+class DrRealSegmentedFollower(Node):
+    NORMAL_NEXT = {
+        "START_A": "COMMON_1",
+        "START_B": "COMMON_1",
+        "COMMON_1": "T_foword",
+        "T_A": "COMMON_2",
+        "T_B": "COMMON_2",
+        "COMMON_2": "V_foword",
+        "V_A": "END_common",
+        "V_B": "END_common",
+        "END_AA": None,
+        "END_AB": None,
+    }
+
+    REQUIRED_SEGMENTS = {
+        "START_A", "START_B", "COMMON_1",
+        "T_foword", "T_A", "T_B",
+        "COMMON_2",
+        "V_foword", "V_A", "V_B",
+        "END_common", "END_AA", "END_AB",
+    }
+
+    def __init__(self):
+        super().__init__("dr_real_segmented_follower")
+
+        # Route / topology
+        self.declare_parameter("network_path", "")
+        self.declare_parameter("start_segment", "START_A")
+        self.declare_parameter("align_route_to_start", True)
+
+        # Real inputs
+        self.declare_parameter("odom_topic", "/odom")
+        self.declare_parameter(
+            "t_slot_topic", "/t_parking/selected_slot")
+        self.declare_parameter(
+            "v_slot_topic", "/parallel_parking/selected_slot")
+        self.declare_parameter(
+            "intersection_go_topic", "/mission/intersection_go")
+        self.declare_parameter(
+            "intersection_timeout_release_topic",
+            "/dr/intersection_timeout_release")
+        # No authoritative END direction topic was found in the selected repos.
+        # Leave empty until a real producer is confirmed.
+        self.declare_parameter("end_branch_topic", "")
+
+        # Vehicle command topics
+        self.declare_parameter("gps_drive_topic", "/gps_drive")
+        self.declare_parameter("gps_wheel_topic", "/gps_wheel")
+        self.declare_parameter("lidar_drive_topic", "/lidar_drive")
+        self.declare_parameter("lidar_wheel_topic", "/lidar_wheel")
+        self.declare_parameter("drive_mode_topic", "/drive_mode")
+
+        # Diagnostics
+        self.declare_parameter(
+            "status_topic", "/dr_navigation/status")
+        self.declare_parameter(
+            "current_segment_topic", "/dr_navigation/current_segment")
+        self.declare_parameter(
+            "selected_branch_topic", "/dr_navigation/selected_branch")
+
+        # T870 / controller
+        self.declare_parameter("wheelbase_m", 0.73)
+        self.declare_parameter("max_steer_deg", 22.0)
+        # +1 keeps controller convention LEFT=+, RIGHT=-.
+        # Change only after wheel-off-ground verification of the final MCU stack.
+        self.declare_parameter("steering_sign", -1)
+        self.declare_parameter("lookahead_forward_m", 0.80)
+        self.declare_parameter("lookahead_reverse_m", 0.60)
+        self.declare_parameter("goal_tolerance_m", 0.30)
+        self.declare_parameter("segment_switch_tolerance_m", 0.40)
+        self.declare_parameter("event_trigger_distance_m", 0.35)
+        self.declare_parameter("off_route_warn_m", 1.0)
+        self.declare_parameter("off_route_stop_m", 2.0)
+        self.declare_parameter("odom_timeout_s", 0.5)
+        self.declare_parameter("search_window_points", 120)
+        # 전진↔후진 전환점에 도달하면 잠시 완전 정지 후 방향 변경.
+        self.declare_parameter("gear_shift_distance_m", 0.20)
+        self.declare_parameter("gear_shift_hold_sec", 0.50)
+        self.declare_parameter("transition_gap_warn_m", 0.60)
+        self.declare_parameter("transition_gap_stop_m", 1.05)
+
+        # Mission waits
+        self.declare_parameter("intersection_wait_sec", 3.0)
+        self.declare_parameter("end_wait_sec", 5.0)
+        self.declare_parameter("auto_start", False)
+
+        gp = lambda n: self.get_parameter(n).value
+
+        self.network_path = os.path.expanduser(str(gp("network_path")))
+        if not self.network_path:
+            raise RuntimeError("network_path is empty")
+
+        self.start_segment = str(gp("start_segment")).strip()
+        if self.start_segment not in ("START_A", "START_B"):
+            raise RuntimeError("start_segment must be START_A or START_B")
+
+        self.align_to_start = bool(gp("align_route_to_start"))
+        self.odom_topic = str(gp("odom_topic"))
+        self.t_slot_topic = str(gp("t_slot_topic"))
+        self.v_slot_topic = str(gp("v_slot_topic"))
+        self.intersection_go_topic = str(gp("intersection_go_topic"))
+        self.intersection_timeout_release_topic = str(
+            gp("intersection_timeout_release_topic"))
+        self.end_branch_topic = str(gp("end_branch_topic")).strip()
+
+        self.wheelbase = float(gp("wheelbase_m"))
+        self.max_steer_deg = abs(float(gp("max_steer_deg")))
+        self.steering_sign = int(gp("steering_sign"))
+        self.lookahead_fwd = float(gp("lookahead_forward_m"))
+        self.lookahead_rev = float(gp("lookahead_reverse_m"))
+        self.goal_tol = float(gp("goal_tolerance_m"))
+        self.switch_tol = float(gp("segment_switch_tolerance_m"))
+        self.event_trigger_dist = float(gp("event_trigger_distance_m"))
+        self.off_warn = float(gp("off_route_warn_m"))
+        self.off_stop = float(gp("off_route_stop_m"))
+        self.odom_timeout = float(gp("odom_timeout_s"))
+        self.search_window = max(20, int(gp("search_window_points")))
+        self.gear_shift_distance = float(gp("gear_shift_distance_m"))
+        self.gear_shift_hold_sec = float(gp("gear_shift_hold_sec"))
+        self.transition_warn = float(gp("transition_gap_warn_m"))
+        self.transition_stop = float(gp("transition_gap_stop_m"))
+        self.intersection_wait_sec = float(gp("intersection_wait_sec"))
+        self.end_wait_sec = float(gp("end_wait_sec"))
+
+        self.raw_segments = self._load_network(Path(self.network_path))
+        missing = self.REQUIRED_SEGMENTS - set(self.raw_segments)
+        if missing:
+            raise RuntimeError(f"route missing segments: {sorted(missing)}")
+
+        self.stopline_indices = {
+            sid: [
+                i for i, p in enumerate(pts)
+                if str(p["event"]).upper() == "STOP_LINE"
+            ]
+            for sid, pts in self.raw_segments.items()
+        }
+
+        self.segments = self._copy_segments(self.raw_segments)
+        self.route_aligned = False
+        self.started = bool(gp("auto_start"))
+        self.finished = False
+
+        self.current_segment_id = self.start_segment
+        self.cursor = 0
+        self.previous_cursor = 0
+
+        self.t_selected = None
+        self.v_selected = None
+        self.end_selected = None
+        self.wait_state = None
+        self.wait_started_at = None
+        self.wait_event_key = None
+        self.gear_shift_until = None
+        self.handled_events = set()
+
+        self.last_odom_time = None
+        self.current_x = 0.0
+        self.current_y = 0.0
+        self.current_yaw = 0.0
+
+        self.last_go_true_time = -1e9
+        self.intersection_timeout_release_latched = False
+        self.last_mode = None
+        self.last_output_owner = None
+
+        latched = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+
+        self.gps_drive_pub = self.create_publisher(
+            Float32, str(gp("gps_drive_topic")), 10)
+        self.gps_wheel_pub = self.create_publisher(
+            Int32, str(gp("gps_wheel_topic")), 10)
+        self.lidar_drive_pub = self.create_publisher(
+            Float32, str(gp("lidar_drive_topic")), 10)
+        self.lidar_wheel_pub = self.create_publisher(
+            Int32, str(gp("lidar_wheel_topic")), 10)
+        self.mode_pub = self.create_publisher(
+            String, str(gp("drive_mode_topic")), 10)
+        self.timeout_release_pub = self.create_publisher(
+            Bool, self.intersection_timeout_release_topic, 10)
+
+        self.status_pub = self.create_publisher(
+            String, str(gp("status_topic")), 10)
+        self.segment_pub = self.create_publisher(
+            String, str(gp("current_segment_topic")), latched)
+        self.branch_pub = self.create_publisher(
+            String, str(gp("selected_branch_topic")), latched)
+
+        self.create_subscription(
+            Odometry, self.odom_topic, self._on_odom, 30)
+        self.create_subscription(
+            String, self.t_slot_topic, self._on_t_slot, 10)
+        self.create_subscription(
+            String, self.v_slot_topic, self._on_v_slot, 10)
+        self.create_subscription(
+            Bool, self.intersection_go_topic, self._on_intersection_go, 10)
+
+        if self.end_branch_topic:
+            self.create_subscription(
+                String, self.end_branch_topic, self._on_end_branch, 10)
+        else:
+            self.get_logger().warning(
+                "end_branch_topic is empty: final END branch will use "
+                "END_AA fallback after the 5 s wait unless a real topic is configured."
+            )
+
+        self.create_service(Trigger, "/dr_route/start", self._on_start)
+        self.create_service(Trigger, "/dr_route/stop", self._on_stop)
+        self.create_service(Trigger, "/dr_route/reset", self._on_reset)
+
+        self.create_timer(0.05, self._control_tick)
+        self.create_timer(0.10, self._watchdog)
+
+        self._validate_transition_gaps()
+        self._publish_segment_state()
+        self._publish_branch_state()
+        self._publish_all_stop()
+        self._status(
+            f"READY route={Path(self.network_path).name} "
+            f"start={self.start_segment}"
+        )
+
+    # ---------------------------------------------------------------
+    # Route loading / geometry
+    # ---------------------------------------------------------------
+    def _load_network(self, path: Path):
+        if not path.is_file():
+            raise RuntimeError(f"network CSV not found: {path}")
+
+        segs = {}
+        with path.open(newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            required = {
+                "segment_id", "point_index", "x_m", "y_m",
+                "direction", "mode", "drive_level", "event",
+            }
+            missing = required - set(reader.fieldnames or [])
+            if missing:
+                raise RuntimeError(
+                    f"segmented CSV missing columns: {sorted(missing)}")
+
+            for row in reader:
+                sid = str(row["segment_id"]).strip()
+                p = {
+                    "point_index": int(float(row["point_index"])),
+                    "x": float(row["x_m"]),
+                    "y": float(row["y_m"]),
+                    "direction": (
+                        1 if int(float(row["direction"])) >= 0 else -1),
+                    "mode": int(float(row.get("mode", 1) or 1)),
+                    "drive_level": float(
+                        row.get("drive_level", 2.0) or 2.0),
+                    "event": str(row.get("event", "NONE") or "NONE").strip(),
+                    "yaw": 0.0,
+                }
+                segs.setdefault(sid, []).append(p)
+
+        for sid, pts in segs.items():
+            pts.sort(key=lambda p: p["point_index"])
+            self._derive_yaw(pts)
+        return segs
+
+    @staticmethod
+    def _derive_yaw(pts):
+        if not pts:
+            return
+        if len(pts) == 1:
+            pts[0]["yaw"] = 0.0
+            return
+        last_yaw = 0.0
+        for i in range(len(pts) - 1):
+            dx = pts[i + 1]["x"] - pts[i]["x"]
+            dy = pts[i + 1]["y"] - pts[i]["y"]
+            if abs(dx) + abs(dy) > 1e-9:
+                last_yaw = math.atan2(dy, dx)
+            pts[i]["yaw"] = last_yaw
+        pts[-1]["yaw"] = pts[-2]["yaw"]
+
+    @staticmethod
+    def _copy_segments(src):
+        return {sid: [dict(p) for p in pts] for sid, pts in src.items()}
+
+    def _align_all_segments(self):
+        if self.route_aligned:
+            return
+
+        self.segments = self._copy_segments(self.raw_segments)
+        if not self.align_to_start:
+            self.route_aligned = True
+            return
+
+        first = self.segments[self.start_segment][0]
+        yaw_offset = norm_angle(self.current_yaw - first["yaw"])
+        c = math.cos(yaw_offset)
+        s = math.sin(yaw_offset)
+        x0, y0 = first["x"], first["y"]
+
+        for pts in self.segments.values():
+            for p in pts:
+                dx, dy = p["x"] - x0, p["y"] - y0
+                p["x"] = self.current_x + c * dx - s * dy
+                p["y"] = self.current_y + s * dx + c * dy
+                p["yaw"] = norm_angle(p["yaw"] + yaw_offset)
+
+        self.route_aligned = True
+        self.get_logger().info(
+            f"route aligned: {self.start_segment} first pose -> current /odom")
+
+    def _validate_transition_gaps(self):
+        edges = [
+            ("START_A", "COMMON_1"),
+            ("START_B", "COMMON_1"),
+            ("COMMON_1", "T_foword"),
+            ("T_foword", "T_A"),
+            ("T_foword", "T_B"),
+            ("T_A", "COMMON_2"),
+            ("T_B", "COMMON_2"),
+            ("COMMON_2", "V_foword"),
+            ("V_foword", "V_A"),
+            ("V_foword", "V_B"),
+            ("V_A", "END_common"),
+            ("V_B", "END_common"),
+            ("END_common", "END_AA"),
+            ("END_common", "END_AB"),
+        ]
+        for a, b in edges:
+            pa = self.raw_segments[a][-1]
+            pb = self.raw_segments[b][0]
+            gap = math.hypot(pb["x"] - pa["x"], pb["y"] - pa["y"])
+            if gap > self.transition_stop:
+                raise RuntimeError(
+                    f"unsafe route transition gap {a}->{b}: {gap:.3f} m "
+                    f"> {self.transition_stop:.3f} m")
+            if gap > self.transition_warn:
+                self.get_logger().warning(
+                    f"large route transition {a}->{b}: {gap:.3f} m")
+
+    # ---------------------------------------------------------------
+    # Inputs
+    # ---------------------------------------------------------------
+    def _on_odom(self, msg: Odometry):
+        self.last_odom_time = time.monotonic()
+        self.current_x = float(msg.pose.pose.position.x)
+        self.current_y = float(msg.pose.pose.position.y)
+        self.current_yaw = yaw_from_quat(msg.pose.pose.orientation)
+
+        if not self.route_aligned:
+            self._align_all_segments()
+
+    def _on_t_slot(self, msg: String):
+        value = str(msg.data).strip()
+        if self.current_segment_id != "T_foword":
+            return
+        if value not in ("T_A", "T_B"):
+            return
+        if self.t_selected is None:
+            self.t_selected = value
+            self._publish_branch_state()
+            self._status(f"T_BRANCH_LATCH {value}")
+
+    def _on_v_slot(self, msg: String):
+        value = str(msg.data).strip()
+        if self.current_segment_id != "V_foword":
+            return
+        if value not in ("V_A", "V_B"):
+            return
+        if self.v_selected is None:
+            self.v_selected = value
+            self._publish_branch_state()
+            self._status(f"V_BRANCH_LATCH {value}")
+
+    def _on_intersection_go(self, msg: Bool):
+        if bool(msg.data):
+            self.last_go_true_time = time.monotonic()
+
+    def _on_end_branch(self, msg: String):
+        value = str(msg.data).strip()
+        if self.current_segment_id != "END_common":
+            return
+        if value not in ("END_AA", "END_AB"):
+            return
+        if self.end_selected is None:
+            self.end_selected = value
+            self._publish_branch_state()
+            self._status(f"END_BRANCH_LATCH {value}")
+
+    # ---------------------------------------------------------------
+    # Services
+    # ---------------------------------------------------------------
+    def _on_start(self, request, response):
+        del request
+        if self.finished:
+            response.success = False
+            response.message = "finished; call /dr_route/reset first"
+            return response
+        if self.last_odom_time is None:
+            response.success = False
+            response.message = "/odom not received"
+            return response
+        self._align_all_segments()
+        self.started = True
+        response.success = True
+        response.message = f"started at {self.current_segment_id}"
+        return response
+
+    def _on_stop(self, request, response):
+        del request
+        self.started = False
+        self.intersection_timeout_release_latched = False
+        self._publish_timeout_release()
+        self._publish_active_stop()
+        response.success = True
+        response.message = "DR stopped"
+        return response
+
+    def _on_reset(self, request, response):
+        del request
+        self.started = False
+        self.finished = False
+        self.current_segment_id = self.start_segment
+        self.cursor = 0
+        self.previous_cursor = 0
+        self.t_selected = None
+        self.v_selected = None
+        self.end_selected = None
+        self.wait_state = None
+        self.wait_started_at = None
+        self.wait_event_key = None
+        self.gear_shift_until = None
+        self.intersection_timeout_release_latched = False
+        self.handled_events.clear()
+        self.route_aligned = False
+        self.segments = self._copy_segments(self.raw_segments)
+        self.last_mode = None
+        self.last_output_owner = None
+        self._publish_all_stop()
+        self._publish_segment_state()
+        self._publish_branch_state()
+        response.success = True
+        response.message = "reset"
+        return response
+
+    # ---------------------------------------------------------------
+    # Control
+    # ---------------------------------------------------------------
+    def _control_tick(self):
+        if not self.started or self.finished:
+            return
+        if self.last_odom_time is None:
+            self._publish_active_stop()
+            return
+        if time.monotonic() - self.last_odom_time > self.odom_timeout:
+            self._publish_active_stop()
+            return
+        if not self.route_aligned:
+            return
+
+        # MCU mode watchdog를 위해 주행/정지 대기 중 모두 현재 mode를 계속 발행.
+        pts = self.segments.get(self.current_segment_id, [])
+        if pts:
+            idx = min(max(0, self.cursor), len(pts) - 1)
+            self._publish_mode(int(pts[idx]["mode"]))
+
+        if self.wait_state is not None:
+            self._process_wait()
+            return
+
+        self._follow_current_segment()
+
+    def _follow_current_segment(self):
+        pts = self.segments[self.current_segment_id]
+        if not pts:
+            self._fail_stop("EMPTY_SEGMENT")
+            return
+
+        x, y, yaw = self.current_x, self.current_y, self.current_yaw
+        old_cursor = self.cursor
+
+        search_end = min(len(pts), self.cursor + self.search_window)
+
+        # 주차 경로는 전진/후진이 공간적으로 겹칠 수 있다.
+        # 현재 gear의 점들만 최근접 검색하여 다음 gear 구간으로
+        # cursor가 순간이동하는 것을 방지한다.
+        search_direction = int(pts[self.cursor]["direction"])
+        for j in range(self.cursor + 1, search_end):
+            if int(pts[j]["direction"]) != search_direction:
+                search_end = j
+                break
+
+        nearest_idx = self.cursor
+        nearest_dist = float("inf")
+        for i in range(self.cursor, search_end):
+            d = math.hypot(pts[i]["x"] - x, pts[i]["y"] - y)
+            if d < nearest_dist:
+                nearest_dist = d
+                nearest_idx = i
+
+        if nearest_idx > self.cursor:
+            self.cursor = nearest_idx
+        self.previous_cursor = old_cursor
+
+        if nearest_dist > self.off_stop:
+            self._publish_active_stop()
+            self._status(
+                f"OFF_ROUTE_STOP segment={self.current_segment_id} "
+                f"idx={self.cursor} dist={nearest_dist:.2f}")
+            return
+
+        # STOP_LINE event is processed before segment-end switching.
+        if self._maybe_enter_stopline_wait(pts, old_cursor, self.cursor):
+            return
+
+        end = pts[-1]
+        end_dist = math.hypot(end["x"] - x, end["y"] - y)
+        end_tol = (
+            self.switch_tol
+            if self.current_segment_id in ("T_foword", "V_foword", "END_common")
+            else self.goal_tol
+        )
+        if self.cursor >= len(pts) - 2 and end_dist <= end_tol:
+            self._on_segment_end()
+            return
+
+        current = pts[self.cursor]
+        mode = int(current["mode"])
+        self._publish_mode(mode)
+
+        direction = int(current["direction"])
+
+        # ----------------------------------------------------------
+        # 명시적 gear transition
+        # 현재 direction block의 마지막 점에 도달한 뒤
+        # 완전 정지 → hold → 다음 direction block으로 진입한다.
+        # ----------------------------------------------------------
+        if self.cursor + 1 < len(pts):
+            next_direction = int(pts[self.cursor + 1]["direction"])
+
+            if next_direction != direction:
+                boundary_dist = math.hypot(
+                    current["x"] - x,
+                    current["y"] - y,
+                )
+
+                if boundary_dist <= self.gear_shift_distance:
+                    now = time.monotonic()
+
+                    if self.gear_shift_until is None:
+                        self.gear_shift_until = (
+                            now + self.gear_shift_hold_sec
+                        )
+
+                    self._publish_active_stop()
+
+                    remaining = self.gear_shift_until - now
+                    if remaining > 0.0:
+                        self._status(
+                            f"GEAR_SHIFT_HOLD "
+                            f"segment={self.current_segment_id} "
+                            f"idx={self.cursor} "
+                            f"{direction}->{next_direction} "
+                            f"remaining={remaining:.2f}s"
+                        )
+                        return
+
+                    old_direction = direction
+
+                    self.cursor += 1
+                    self.previous_cursor = self.cursor - 1
+                    self.gear_shift_until = None
+
+                    self._publish_active_stop()
+                    self._status(
+                        f"GEAR_SHIFT_DONE "
+                        f"segment={self.current_segment_id} "
+                        f"idx={self.cursor} "
+                        f"{old_direction}->{next_direction}"
+                    )
+                    return
+            else:
+                self.gear_shift_until = None
+
+        lookahead = self.lookahead_fwd if direction >= 0 else self.lookahead_rev
+
+        target_idx = self.cursor
+        accumulated = 0.0
+        prev = pts[self.cursor]
+        for i in range(self.cursor + 1, len(pts)):
+            if int(pts[i]["direction"]) != direction:
+                break
+            accumulated += math.hypot(
+                pts[i]["x"] - prev["x"],
+                pts[i]["y"] - prev["y"])
+            target_idx = i
+            prev = pts[i]
+            if accumulated >= lookahead:
+                break
+
+        target = pts[target_idx]
+        control_yaw = yaw if direction >= 0 else norm_angle(yaw + math.pi)
+        dx, dy = target["x"] - x, target["y"] - y
+        alpha = norm_angle(math.atan2(dy, dx) - control_yaw)
+        ld = max(0.05, math.hypot(dx, dy))
+
+        curvature = 2.0 * math.sin(alpha) / ld
+        steer_deg = math.degrees(math.atan(self.wheelbase * curvature))
+        if direction < 0:
+            steer_deg = -steer_deg
+
+        steer_deg = max(
+            -self.max_steer_deg, min(self.max_steer_deg, steer_deg))
+        steer_deg *= self.steering_sign
+
+        if direction < 0:
+            drive = -1.0
+        else:
+            drive = max(1.0, min(3.0, float(current["drive_level"])))
+            if abs(steer_deg) >= 18.0:
+                drive = 1.0
+
+        owner = "lidar" if mode in (7, 10) else "gps"
+        self._publish_command(owner, drive, int(round(steer_deg)))
+
+        state = "OFF_ROUTE_WARN" if nearest_dist > self.off_warn else "TRACKING"
+        self._status(
+            f"{state} segment={self.current_segment_id} "
+            f"idx={self.cursor}/{len(pts)-1} mode={mode} "
+            f"dist={nearest_dist:.2f} drive={drive:.1f} "
+            f"wheel={int(round(steer_deg))} owner={owner}")
+
+    def _maybe_enter_stopline_wait(self, pts, old_cursor, new_cursor):
+        stop_indices = self.stopline_indices.get(self.current_segment_id, [])
+        for event_idx in stop_indices:
+            p = pts[event_idx]
+            key = (self.current_segment_id, int(p["point_index"]))
+            if key in self.handled_events:
+                continue
+
+            dist = math.hypot(
+                p["x"] - self.current_x, p["y"] - self.current_y)
+            crossed = old_cursor <= event_idx <= new_cursor
+            near = dist <= self.event_trigger_dist
+            if not (crossed or near):
+                continue
+
+            mode = int(p["mode"])
+            # T_foword's STOP_LINE is its branch-selection stop.
+            if self.current_segment_id == "T_foword":
+                self._enter_wait("T_BRANCH", key)
+                return True
+
+            # The last END_common STOP_LINE selects END_AA/END_AB.
+            if (
+                self.current_segment_id == "END_common"
+                and event_idx == stop_indices[-1]
+            ):
+                self._enter_wait("END_BRANCH", key)
+                return True
+
+            # mode 4/6/8 and the first END_common stop use camera GO.
+            if mode in (4, 6, 8, 11):
+                self._enter_wait("INTERSECTION", key)
+                return True
+
+            # Unknown STOP_LINE semantics: fail closed rather than invent logic.
+            self._enter_wait("UNSUPPORTED_STOP_LINE", key)
+            return True
+
+        return False
+
+    def _enter_wait(self, state, event_key):
+        if state == "INTERSECTION":
+            self.intersection_timeout_release_latched = False
+            self._publish_timeout_release()
+        self.wait_state = state
+        self.wait_started_at = time.monotonic()
+        self.wait_event_key = event_key
+        self._publish_active_stop()
+        self._status(
+            f"WAIT_START state={state} event={event_key[0]}#{event_key[1]}")
+
+    def _process_wait(self):
+        now = time.monotonic()
+        elapsed = now - float(self.wait_started_at or now)
+        self._publish_active_stop()
+
+        if self.wait_state == "INTERSECTION":
+            # Only a GO arriving after this stop began is valid.
+            if self.last_go_true_time >= float(self.wait_started_at):
+                self.intersection_timeout_release_latched = False
+                self._publish_timeout_release()
+                self._finish_wait("CAMERA_GO")
+                return
+
+            if elapsed >= self.intersection_wait_sec:
+                pts = self.segments.get(self.current_segment_id, [])
+                mode = -1
+                if pts:
+                    idx = min(max(0, self.cursor), len(pts) - 1)
+                    mode = int(pts[idx]["mode"])
+
+                # MCU의 별도 intersection policy는 mode 4/6에만 있다.
+                if mode in (4, 6):
+                    self.intersection_timeout_release_latched = True
+                    self._publish_timeout_release()
+
+                self._finish_wait("CAMERA_TIMEOUT_RELEASE")
+                return
+
+            self._status(f"WAIT_INTERSECTION {elapsed:.2f}s")
+            return
+
+        if self.wait_state == "T_BRANCH":
+            if self.t_selected in ("T_A", "T_B"):
+                branch = self.t_selected
+                self._finish_wait(f"T_SELECTED_{branch}", mark_only=True)
+                self._switch_segment(branch)
+                return
+            self._status("WAIT_T_BRANCH")
+            return
+
+        if self.wait_state == "V_BRANCH":
+            if self.v_selected in ("V_A", "V_B"):
+                branch = self.v_selected
+                self._finish_wait(f"V_SELECTED_{branch}", mark_only=True)
+                self._switch_segment(branch)
+                return
+            self._status("WAIT_V_BRANCH")
+            return
+
+        if self.wait_state == "END_BRANCH":
+            if self.end_selected in ("END_AA", "END_AB"):
+                branch = self.end_selected
+                self._finish_wait(f"END_SELECTED_{branch}", mark_only=True)
+                self._switch_segment(branch)
+                return
+            if elapsed >= self.end_wait_sec:
+                self.end_selected = "END_AA"
+                self._publish_branch_state()
+                self._finish_wait(
+                    "END_TIMEOUT_FALLBACK_END_AA", mark_only=True)
+                self._switch_segment("END_AA")
+                return
+            self._status(f"WAIT_END_BRANCH {elapsed:.2f}s")
+            return
+
+        # Unsupported event semantics must remain stopped.
+        self._status(
+            f"WAIT_UNSUPPORTED_STOP_LINE event={self.wait_event_key}")
+
+    def _finish_wait(self, reason, mark_only=False):
+        if self.wait_event_key is not None:
+            self.handled_events.add(self.wait_event_key)
+        self.wait_state = None
+        self.wait_started_at = None
+        self.wait_event_key = None
+        self._status(reason)
+        if not mark_only:
+            # Next control tick resumes the current segment after the event.
+            return
+
+    def _on_segment_end(self):
+        sid = self.current_segment_id
+
+        if sid == "T_foword":
+            if self.t_selected in ("T_A", "T_B"):
+                self._switch_segment(self.t_selected)
+            else:
+                self._enter_wait(
+                    "T_BRANCH",
+                    (sid, self.segments[sid][-1]["point_index"]))
+            return
+
+        if sid == "V_foword":
+            if self.v_selected in ("V_A", "V_B"):
+                self._switch_segment(self.v_selected)
+            else:
+                # V_foword has no STOP_LINE in route_network_segmented_10.
+                self.wait_state = "V_BRANCH"
+                self.wait_started_at = time.monotonic()
+                self.wait_event_key = None
+                self._publish_active_stop()
+                self._status("WAIT_V_BRANCH")
+            return
+
+        if sid == "END_common":
+            if self.end_selected in ("END_AA", "END_AB"):
+                self._switch_segment(self.end_selected)
+            else:
+                # Normally the final STOP_LINE has already entered END_BRANCH.
+                self.wait_state = "END_BRANCH"
+                self.wait_started_at = time.monotonic()
+                self.wait_event_key = None
+                self._publish_active_stop()
+                self._status("WAIT_END_BRANCH")
+            return
+
+        nxt = self.NORMAL_NEXT.get(sid)
+        if nxt is None:
+            self.finished = True
+            self.started = False
+            self._publish_active_stop()
+            self._status(f"GOAL_REACHED segment={sid}")
+            return
+
+        self._switch_segment(nxt)
+
+    def _switch_segment(self, new_sid):
+        if new_sid not in self.segments:
+            self._fail_stop(f"MISSING_SEGMENT {new_sid}")
+            return
+
+        old_sid = self.current_segment_id
+        old_end = self.segments[old_sid][-1]
+        new_start = self.segments[new_sid][0]
+        gap = math.hypot(
+            new_start["x"] - old_end["x"],
+            new_start["y"] - old_end["y"])
+
+        if gap > self.transition_stop:
+            self._fail_stop(
+                f"TRANSITION_GAP_STOP {old_sid}->{new_sid} {gap:.3f}m")
+            return
+
+        self.current_segment_id = new_sid
+        self.cursor = 0
+        self.previous_cursor = 0
+        self.gear_shift_until = None
+
+        # Branch selection is kept only as run history; new branch inputs are
+        # accepted only while their common approach segment is active.
+        self._publish_segment_state()
+        self._publish_branch_state()
+        self._status(
+            f"SEGMENT_SWITCH {old_sid}->{new_sid} gap={gap:.3f}m")
+
+    def _watchdog(self):
+        if not self.started or self.finished:
+            return
+        if self.last_odom_time is None:
+            self._publish_active_stop()
+            self._status("ODOM_MISSING")
+            return
+        age = time.monotonic() - self.last_odom_time
+        if age > self.odom_timeout:
+            self._publish_active_stop()
+            self._status(f"ODOM_TIMEOUT age={age:.2f}s")
+
+    # ---------------------------------------------------------------
+    # Outputs
+    # ---------------------------------------------------------------
+    def _publish_timeout_release(self):
+        self.timeout_release_pub.publish(
+            Bool(data=bool(
+                self.intersection_timeout_release_latched)))
+
+    def _publish_mode(self, mode):
+        mode = int(mode)
+
+        # Timeout release는 mode 4/6을 벗어나면 즉시 폐기한다.
+        if mode not in (4, 6):
+            self.intersection_timeout_release_latched = False
+
+        if mode != self.last_mode:
+            self.last_mode = mode
+
+        self.mode_pub.publish(String(data=str(mode)))
+        self._publish_timeout_release()
+
+    def _active_owner(self):
+        pts = self.segments.get(self.current_segment_id, [])
+        if not pts:
+            return self.last_output_owner or "gps"
+        idx = min(max(0, self.cursor), len(pts) - 1)
+        mode = int(pts[idx]["mode"])
+        return "lidar" if mode in (7, 10) else "gps"
+
+    def _publish_command(self, owner, drive, wheel):
+        if owner != self.last_output_owner and self.last_output_owner is not None:
+            # One zero pulse on the previous source prevents stale nonzero
+            # commands while ownership changes. Do not continuously publish
+            # inactive-source zeros because that would keep the source fresh.
+            self._publish_owner_stop(self.last_output_owner)
+
+        self.last_output_owner = owner
+        if owner == "lidar":
+            self.lidar_drive_pub.publish(Float32(data=float(drive)))
+            self.lidar_wheel_pub.publish(Int32(data=int(wheel)))
+        else:
+            self.gps_drive_pub.publish(Float32(data=float(drive)))
+            self.gps_wheel_pub.publish(Int32(data=int(wheel)))
+
+    def _publish_owner_stop(self, owner):
+        if owner == "lidar":
+            self.lidar_drive_pub.publish(Float32(data=0.0))
+            self.lidar_wheel_pub.publish(Int32(data=0))
+        else:
+            self.gps_drive_pub.publish(Float32(data=0.0))
+            self.gps_wheel_pub.publish(Int32(data=0))
+
+    def _publish_active_stop(self):
+        owner = self._active_owner()
+        self._publish_owner_stop(owner)
+        self.last_output_owner = owner
+
+    def _publish_all_stop(self):
+        self._publish_owner_stop("gps")
+        self._publish_owner_stop("lidar")
+
+    def _publish_segment_state(self):
+        self.segment_pub.publish(String(data=self.current_segment_id))
+
+    def _publish_branch_state(self):
+        values = []
+        if self.t_selected:
+            values.append(f"T={self.t_selected}")
+        if self.v_selected:
+            values.append(f"V={self.v_selected}")
+        if self.end_selected:
+            values.append(f"END={self.end_selected}")
+        self.branch_pub.publish(
+            String(data=",".join(values) if values else "NONE"))
+
+    def _status(self, text):
+        self.status_pub.publish(String(data=str(text)))
+
+    def _fail_stop(self, reason):
+        self.started = False
+        self.intersection_timeout_release_latched = False
+        self._publish_timeout_release()
+        self._publish_active_stop()
+        self._status(f"FAIL_STOP {reason}")
+        self.get_logger().error(str(reason))
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = DrRealSegmentedFollower()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,96 @@
+real_parking_slot_selector:
+  ros__parameters:
+    front_scan_topic: /scan_front
+    rear_scan_topic: /scan_rear
+    mode_topic: /drive_mode
+
+    t_selected_topic: /t_parking/selected_slot
+    v_selected_topic: /parallel_parking/selected_slot
+    status_topic: /parking_slot_selector/status
+    debug_topic: /parking_slot_selector/debug
+
+    publish_hz: 10.0
+    mode_timeout_s: 1.0
+    scan_timeout_s: 0.50
+
+    buffer_frames: 20
+    minimum_frames: 8
+    minimum_sector_rays: 5
+
+    # A single frame is OCCUPIED when at least this many rays return
+    # inside the calibrated slot range window.
+    occupied_hits_per_frame: 3
+
+    # A single frame is FREE when no more than this many rays return
+    # inside the slot range window.
+    free_hits_per_frame: 0
+
+    occupied_vote_ratio: 0.60
+    free_vote_ratio: 0.70
+
+    # Fail closed when both bays look free. Only enable after the team
+    # explicitly decides a deterministic preference is safe.
+    allow_both_free_preference: false
+    preferred_t_branch: T_A
+    preferred_v_branch: V_A
+
+    # ================================================================
+    # REAL-CAR ROI CALIBRATION
+    #
+    # ALL SECTORS ARE DISABLED BY DEFAULT.
+    # Do not enable them until the vehicle is physically stopped at the
+    # T_foword / V_foword decision pose and the actual LaserScan sectors
+    # for the two bays have been measured.
+    #
+    # If both front and rear are enabled for one branch, BOTH must prove
+    # FREE before that branch can be selected, while either can prove
+    # OCCUPIED.
+    # ================================================================
+
+    t_a_front_enabled: false
+    t_a_front_angle_min_deg: 0.0
+    t_a_front_angle_max_deg: 0.0
+    t_a_front_range_min_m: 0.0
+    t_a_front_range_max_m: 0.0
+
+    t_a_rear_enabled: false
+    t_a_rear_angle_min_deg: 0.0
+    t_a_rear_angle_max_deg: 0.0
+    t_a_rear_range_min_m: 0.0
+    t_a_rear_range_max_m: 0.0
+
+    t_b_front_enabled: false
+    t_b_front_angle_min_deg: 0.0
+    t_b_front_angle_max_deg: 0.0
+    t_b_front_range_min_m: 0.0
+    t_b_front_range_max_m: 0.0
+
+    t_b_rear_enabled: false
+    t_b_rear_angle_min_deg: 0.0
+    t_b_rear_angle_max_deg: 0.0
+    t_b_rear_range_min_m: 0.0
+    t_b_rear_range_max_m: 0.0
+
+    v_a_front_enabled: false
+    v_a_front_angle_min_deg: 0.0
+    v_a_front_angle_max_deg: 0.0
+    v_a_front_range_min_m: 0.0
+    v_a_front_range_max_m: 0.0
+
+    v_a_rear_enabled: false
+    v_a_rear_angle_min_deg: 0.0
+    v_a_rear_angle_max_deg: 0.0
+    v_a_rear_range_min_m: 0.0
+    v_a_rear_range_max_m: 0.0
+
+    v_b_front_enabled: false
+    v_b_front_angle_min_deg: 0.0
+    v_b_front_angle_max_deg: 0.0
+    v_b_front_range_min_m: 0.0
+    v_b_front_range_max_m: 0.0
+
+    v_b_rear_enabled: false
+    v_b_rear_angle_min_deg: 0.0
+    v_b_rear_angle_max_deg: 0.0
+    v_b_rear_range_min_m: 0.0
+    v_b_rear_range_max_m: 0.0

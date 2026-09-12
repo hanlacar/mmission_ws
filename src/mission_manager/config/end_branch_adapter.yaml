@@ -1,0 +1,26 @@
+end_branch_adapter:
+  ros__parameters:
+    mode_topic: /drive_mode
+    aspect_topic: /camera/traffic_light_fused/aspect
+    confidence_topic: /camera/traffic_light_fused/confidence
+    diagnostics_topic: /camera/traffic_light_fused/diagnostics
+
+    output_topic: /dr/end_branch
+    status_topic: /dr/end_branch_status
+
+    active_mode: "11"
+    mode_timeout_s: 1.0
+    input_timeout_s: 0.50
+
+    # Same baseline as camera_ws exit_signal_min_confidence.
+    minimum_confidence: 0.60
+    confirm_frames: 3
+    require_rgb_green_down_verified: true
+
+    # IMPORTANT:
+    # Physical course mapping is not yet confirmed.
+    # Leave both NONE until the actual END_AA/END_AB meaning is verified.
+    #
+    # Valid values: NONE, END_AA, END_AB
+    green_down_branch: NONE
+    green_left_branch: NONE
