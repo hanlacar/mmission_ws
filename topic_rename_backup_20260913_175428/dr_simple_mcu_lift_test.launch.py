@@ -30,7 +30,7 @@ def generate_launch_description():
         Node(package='mission_manager', executable='dr_real_segmented_follower', name='dr_real_segmented_follower', output='screen',
              parameters=[{
                  'network_path': route, 'start_segment': start, 'auto_start': False, 'end_branch_topic': '',
-                 'odom_topic': '/odom', 'gps_drive_topic': '/cmd_drive', 'gps_wheel_topic': '/cmd_wheel',
+                 'odom_topic': '/odom', 'gps_drive_topic': '/gps_drive', 'gps_wheel_topic': '/gps_wheel',
                  'lidar_drive_topic': '/lidar_drive', 'lidar_wheel_topic': '/lidar_wheel', 'drive_mode_topic': '/drive_mode',
                  'wheelbase_m': 0.73, 'max_steer_deg': 22.0, 'steering_sign': 1,
                  'intersection_wait_sec': 3.0, 'end_wait_sec': 5.0, 'odom_timeout_s': 0.5,

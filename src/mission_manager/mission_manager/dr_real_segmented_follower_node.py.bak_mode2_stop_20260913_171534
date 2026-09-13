@@ -84,8 +84,8 @@ class DrRealSegmentedFollower(Node):
         self.declare_parameter("end_branch_topic", "")
 
         # Vehicle command topics
-        self.declare_parameter("gps_drive_topic", "/cmd_drive")
-        self.declare_parameter("gps_wheel_topic", "/cmd_wheel")
+        self.declare_parameter("gps_drive_topic", "/gps_drive")
+        self.declare_parameter("gps_wheel_topic", "/gps_wheel")
         self.declare_parameter("lidar_drive_topic", "/lidar_drive")
         self.declare_parameter("lidar_wheel_topic", "/lidar_wheel")
         self.declare_parameter("drive_mode_topic", "/drive_mode")
@@ -251,9 +251,6 @@ class DrRealSegmentedFollower(Node):
         self.create_service(Trigger, "/dr_route/stop", self._on_stop)
         self.create_service(Trigger, "/dr_route/reset", self._on_reset)
 
-        self.create_subscription(
-            String, "/camera/end_branch",
-            self._on_camera_end_branch, 10)
         self.create_timer(0.05, self._control_tick)
         self.create_timer(0.10, self._watchdog)
 
@@ -702,13 +699,6 @@ class DrRealSegmentedFollower(Node):
                 self._enter_wait("END_BRANCH", key)
                 return True
 
-            # START_A/START_B mode 2 STOP_LINE:
-            # stop once, then automatically continue after intersection_wait_sec
-            # (3.0 s by current config). It does not wait for camera GO.
-            if mode == 2:
-                self._enter_wait("MODE2_TIMED_STOP", key)
-                return True
-
             # mode 4/6/8 and the first END_common stop use camera GO.
             if mode in (4, 6, 8, 11):
                 self._enter_wait("INTERSECTION", key)
@@ -735,13 +725,6 @@ class DrRealSegmentedFollower(Node):
         now = time.monotonic()
         elapsed = now - float(self.wait_started_at or now)
         self._publish_active_stop()
-
-        if self.wait_state == "MODE2_TIMED_STOP":
-            if elapsed >= self.intersection_wait_sec:
-                self._finish_wait("MODE2_TIMEOUT_RELEASE")
-                return
-            self._status(f"WAIT_MODE2_TIMED_STOP {elapsed:.2f}s")
-            return
 
         if self.wait_state == "INTERSECTION":
             # Only a GO arriving after this stop began is valid.
@@ -817,23 +800,6 @@ class DrRealSegmentedFollower(Node):
         if not mark_only:
             # Next control tick resumes the current segment after the event.
             return
-
-    def _on_camera_end_branch(self, msg):
-        raw = str(msg.data).strip().upper()
-        mapping = {
-            "AA": "END_AA",
-            "END_AA": "END_AA",
-            "AB": "END_AB",
-            "END_AB": "END_AB",
-        }
-        selected = mapping.get(raw)
-        if selected is None:
-            self._status(f"CAMERA_END_BRANCH_IGNORED value={raw}")
-            return
-
-        self.end_selected = selected
-        self._publish_branch_state()
-        self._status(f"CAMERA_END_BRANCH_SELECTED {selected}")
 
     def _on_segment_end(self):
         sid = self.current_segment_id

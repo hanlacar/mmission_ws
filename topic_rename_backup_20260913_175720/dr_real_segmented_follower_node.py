@@ -251,9 +251,6 @@ class DrRealSegmentedFollower(Node):
         self.create_service(Trigger, "/dr_route/stop", self._on_stop)
         self.create_service(Trigger, "/dr_route/reset", self._on_reset)
 
-        self.create_subscription(
-            String, "/camera/end_branch",
-            self._on_camera_end_branch, 10)
         self.create_timer(0.05, self._control_tick)
         self.create_timer(0.10, self._watchdog)
 
@@ -817,23 +814,6 @@ class DrRealSegmentedFollower(Node):
         if not mark_only:
             # Next control tick resumes the current segment after the event.
             return
-
-    def _on_camera_end_branch(self, msg):
-        raw = str(msg.data).strip().upper()
-        mapping = {
-            "AA": "END_AA",
-            "END_AA": "END_AA",
-            "AB": "END_AB",
-            "END_AB": "END_AB",
-        }
-        selected = mapping.get(raw)
-        if selected is None:
-            self._status(f"CAMERA_END_BRANCH_IGNORED value={raw}")
-            return
-
-        self.end_selected = selected
-        self._publish_branch_state()
-        self._status(f"CAMERA_END_BRANCH_SELECTED {selected}")
 
     def _on_segment_end(self):
         sid = self.current_segment_id

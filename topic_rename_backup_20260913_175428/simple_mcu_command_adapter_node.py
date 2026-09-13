@@ -12,8 +12,8 @@ class SimpleMcuCommandAdapter(Node):
     def __init__(self):
         super().__init__('simple_mcu_command_adapter')
         for n, v in {
-            'gps_drive_topic': '/cmd_drive',
-            'gps_wheel_topic': '/cmd_wheel',
+            'gps_drive_topic': '/gps_drive',
+            'gps_wheel_topic': '/gps_wheel',
             'lidar_drive_topic': '/lidar_drive',
             'lidar_wheel_topic': '/lidar_wheel',
             'mode_topic': '/drive_mode',
