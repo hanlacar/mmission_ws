@@ -82,6 +82,8 @@ class ImuDriverNode(Node):
         self.rel_yaw = 0.0          # 적분된 상대 yaw (rad)
         self.pitch = 0.0            # 최신 pitch (rad)
         self._last_t = None         # gyro 적분용 이전 시각
+        self._have_gyro = False     # 실제 gyro 수신 여부
+        self._have_accel = False    # 실제 accel 수신 여부
 
         # accel 최신값 (split 모드에서 gyro/accel 시각이 달라 저장해둠)
         self._ax = 0.0
@@ -107,6 +109,8 @@ class ImuDriverNode(Node):
     # ---------- 통합 모드 ----------
     def _on_imu(self, msg: Imu):
         t = self._stamp_sec(msg)
+        self._have_gyro = True
+        self._have_accel = True
         self._integrate_yaw(_axis(msg.angular_velocity, GYRO_YAW_AXIS), t)
         # accel 저장 후 pitch 계산
         self._ax = msg.linear_acceleration.x
@@ -117,9 +121,11 @@ class ImuDriverNode(Node):
     # ---------- 분리 모드 ----------
     def _on_gyro(self, msg: Imu):
         t = self._stamp_sec(msg)
+        self._have_gyro = True
         self._integrate_yaw(_axis(msg.angular_velocity, GYRO_YAW_AXIS), t)
 
     def _on_accel(self, msg: Imu):
+        self._have_accel = True
         self._ax = msg.linear_acceleration.x
         self._ay = msg.linear_acceleration.y
         self._az = msg.linear_acceleration.z
@@ -149,10 +155,15 @@ class ImuDriverNode(Node):
         self.pitch = math.atan2(fwd, abs(up) + 1e-6)
 
     def _publish(self):
-        yaw_deg = YAW_SIGN * math.degrees(self.rel_yaw)
-        pitch_deg = PITCH_SIGN * math.degrees(self.pitch)
-        self.yaw_pub.publish(Float32(data=float(yaw_deg)))
-        self.pitch_pub.publish(Float32(data=float(pitch_deg)))
+        # 실제 센서 입력이 없으면 가짜 0 값을 발행하지 않는다.
+        # downstream에서는 topic freshness 자체를 IMU health로 사용할 수 있다.
+        if self._have_gyro:
+            yaw_deg = YAW_SIGN * math.degrees(self.rel_yaw)
+            self.yaw_pub.publish(Float32(data=float(yaw_deg)))
+
+        if self._have_accel:
+            pitch_deg = PITCH_SIGN * math.degrees(self.pitch)
+            self.pitch_pub.publish(Float32(data=float(pitch_deg)))
 
     @staticmethod
     def _stamp_sec(msg):
