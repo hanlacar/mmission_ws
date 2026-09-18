@@ -1,0 +1,23 @@
+t870_gamepad_takeover:
+  ros__parameters:
+    device: "/dev/input/js0"
+    auto_find_device: true
+    lb_button: 4
+    a_button: 0
+    x_button: 2
+    dpad_x_axis: 6
+    dpad_y_axis: 7
+    axis_threshold: 16000
+    steer_step_deg: 5
+    max_steer_deg: 22
+    heartbeat_hz: 10.0
+    reconnect_s: 1.0
+    mirror_manual_topics: true
+    manual_drive_topic: "/manual_drive"
+    manual_wheel_topic: "/manual_wheel"
+
+simple_mcu_command_adapter:
+  ros__parameters:
+    switch_hold_s: 0.30
+    pad_heartbeat_timeout_s: 0.75
+    max_steer_deg: 22
