@@ -14,6 +14,7 @@ def generate_launch_description():
     installed_rviz = share / 'rviz' / 'dr_lifted_route_test.rviz'
     source_rviz = Path.home() / 'mmission_ws' / 'src' / 'mission_manager' / 'rviz' / 'dr_lifted_route_test.rviz'
     default_rviz = str(installed_rviz if installed_rviz.is_file() else source_rviz)
+    pad_config = str(share / 'config' / 'pad_takeover.yaml')
     route = LaunchConfiguration('network_path')
     start = LaunchConfiguration('start_segment')
     return LaunchDescription([
@@ -36,7 +37,8 @@ def generate_launch_description():
                  'intersection_wait_sec': 3.0, 'end_wait_sec': 5.0, 'odom_timeout_s': 0.5,
                  'off_route_stop_m': 2.0, 'transition_gap_stop_m': 1.05,
              }]),
-        Node(package='mission_manager', executable='simple_mcu_command_adapter', name='simple_mcu_command_adapter', output='screen'),
+        Node(package='mission_manager', executable='gamepad_takeover', name='t870_gamepad_takeover', output='screen', parameters=[pad_config]),
+        Node(package='mission_manager', executable='simple_mcu_command_adapter', name='simple_mcu_command_adapter', output='screen', parameters=[pad_config]),
         Node(package='mission_manager', executable='intersection_timeout_bridge',
              name='intersection_timeout_bridge', output='screen'),
         Node(package='mission_manager', executable='dr_segmented_visualizer', name='dr_segmented_visualizer', output='screen',
