@@ -131,6 +131,7 @@ setup(
             'camera_end_branch_bridge = mission_manager.camera_end_branch_bridge_node:main',
             'simple_mcu_odom = mission_manager.simple_mcu_odom_node:main',
             'simple_mcu_command_adapter = mission_manager.simple_mcu_command_adapter_node:main',
+            'gamepad_takeover = mission_manager.gamepad_takeover_node:main',
             'intersection_timeout_bridge = mission_manager.intersection_timeout_bridge_node:main',
             'dr_segmented_visualizer = mission_manager.dr_segmented_visualizer_node:main',
             'odom_route_recorder = mission_manager.odom_route_recorder_node:main',
