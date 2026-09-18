@@ -28,6 +28,7 @@ mission_manager가 쓰는 규약 토픽으로 변환 발행한다.
 import math
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Imu
 from std_msgs.msg import Float32
 
@@ -94,12 +95,15 @@ class ImuDriverNode(Node):
         self.pitch_pub = self.create_publisher(Float32, "/imu/pitch_deg", 10)
 
         if IMU_SOURCE == "united":
-            self.create_subscription(Imu, IMU_TOPIC, self._on_imu, 50)
+            self.create_subscription(
+                Imu, IMU_TOPIC, self._on_imu, qos_profile_sensor_data)
             self.get_logger().info(f"IMU 구독(통합): {IMU_TOPIC}")
         else:
             from sensor_msgs.msg import Imu as _Imu  # gyro/accel도 Imu 타입
-            self.create_subscription(_Imu, GYRO_TOPIC, self._on_gyro, 50)
-            self.create_subscription(_Imu, ACCEL_TOPIC, self._on_accel, 50)
+            self.create_subscription(
+                _Imu, GYRO_TOPIC, self._on_gyro, qos_profile_sensor_data)
+            self.create_subscription(
+                _Imu, ACCEL_TOPIC, self._on_accel, qos_profile_sensor_data)
             self.get_logger().info(
                 f"IMU 구독(분리): gyro={GYRO_TOPIC}, accel={ACCEL_TOPIC}")
 
