@@ -34,6 +34,12 @@ class OdomRouteRecorder(Node):
             "/manual_drive",
         )
 
+        # IMU 상대 yaw 입력
+        self.declare_parameter(
+            "imu_yaw_topic",
+            "/imu/relative_yaw_deg",
+        )
+
         # 저장 파일
         self.declare_parameter(
             "out_csv",
@@ -109,6 +115,7 @@ class OdomRouteRecorder(Node):
                 "x_m",
                 "y_m",
                 "yaw_deg",
+                "imu_yaw_deg",
                 "direction",
                 "mode",
                 "drive_level",
@@ -132,6 +139,9 @@ class OdomRouteRecorder(Node):
 
         # 마지막 drive 값을 로그용으로 저장
         self.last_logged_drive = None
+
+        # 최신 IMU yaw. 아직 수신 전이면 CSV에는 빈 칸으로 저장.
+        self.latest_imu_yaw_deg = None
 
         # =========================================================
         # One-shot event
@@ -161,6 +171,12 @@ class OdomRouteRecorder(Node):
             ).value
         )
 
+        self.imu_yaw_topic = str(
+            self.get_parameter(
+                "imu_yaw_topic"
+            ).value
+        )
+
         # =========================================================
         # Subscriber
         # =========================================================
@@ -185,6 +201,16 @@ class OdomRouteRecorder(Node):
             )
         )
 
+        # IMU relative yaw
+        self.imu_yaw_subscription = (
+            self.create_subscription(
+                Float32,
+                self.imu_yaw_topic,
+                self._imu_yaw_callback,
+                50,
+            )
+        )
+
         # =========================================================
         # 시작 로그
         # =========================================================
@@ -202,6 +228,11 @@ class OdomRouteRecorder(Node):
         self.get_logger().info(
             f"Manual drive topic: "
             f"{self.manual_drive_topic}"
+        )
+
+        self.get_logger().info(
+            f"IMU yaw topic: "
+            f"{self.imu_yaw_topic}"
         )
 
         self.get_logger().info(
@@ -341,6 +372,21 @@ class OdomRouteRecorder(Node):
             self.last_logged_drive = (
                 self.current_drive_level
             )
+
+    # =============================================================
+    # IMU yaw
+    # =============================================================
+
+    def _imu_yaw_callback(
+        self,
+        msg: Float32,
+    ):
+        value = float(msg.data)
+
+        if not math.isfinite(value):
+            return
+
+        self.latest_imu_yaw_deg = value
 
     # =============================================================
     # quaternion → yaw
@@ -483,6 +529,11 @@ class OdomRouteRecorder(Node):
                 f"{x:.6f}",
                 f"{y:.6f}",
                 f"{yaw_deg:.3f}",
+                (
+                    ""
+                    if self.latest_imu_yaw_deg is None
+                    else f"{self.latest_imu_yaw_deg:.3f}"
+                ),
                 direction,
                 mode,
                 f"{drive_level:.2f}",
