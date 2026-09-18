@@ -7,6 +7,7 @@ from pathlib import Path
 import rclpy
 from rclpy.node import Node
 from rcl_interfaces.msg import SetParametersResult
+from rclpy.parameter import Parameter
 
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Float32
@@ -131,6 +132,18 @@ class OdomRouteRecorder(Node):
 
         # 마지막 drive 값을 로그용으로 저장
         self.last_logged_drive = None
+
+        # =========================================================
+        # One-shot event
+        # =========================================================
+        # 사용자가 record_event를 NONE 이외 값으로 변경하면
+        # 다음 실제 waypoint 1개에만 이벤트를 기록한 뒤 자동 NONE 복귀.
+        self.pending_event = "NONE"
+        self.auto_resetting_event = False
+
+        # 이벤트는 현재 위치를 즉시 1점 기록할 수 있도록
+        # 최소 거리 필터를 한 번 우회한다.
+        self.force_record = False
 
         # =========================================================
         # 토픽 이름
@@ -263,6 +276,35 @@ class OdomRouteRecorder(Node):
                         )
                     )
 
+            # one-shot event
+            if param.name == "record_event":
+                event = str(param.value).strip().upper()
+
+                if event not in (
+                    "NONE",
+                    "STOP_LINE",
+                    "REAL_STOP_LINE",
+                ):
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            "record_event must be NONE, "
+                            "STOP_LINE, or REAL_STOP_LINE"
+                        ),
+                    )
+
+                # 내부 자동 NONE 복귀가 아니라 사용자가 지정한 경우만 arm
+                if not self.auto_resetting_event:
+                    self.pending_event = event
+
+                    if event != "NONE":
+                        # 차량이 정지해 있어도 현재 위치를 다음 odom callback에서
+                        # 반드시 1점 기록한다.
+                        self.force_record = True
+                        self.get_logger().info(
+                            f"One-shot event armed: {event}"
+                        )
+
         return SetParametersResult(
             successful=True
         )
@@ -363,6 +405,7 @@ class OdomRouteRecorder(Node):
             if (
                 distance
                 < min_distance
+                and not self.force_record
             ):
                 return
 
@@ -424,11 +467,11 @@ class OdomRouteRecorder(Node):
         # event
         # ---------------------------------------------------------
 
+        # parameter 값을 직접 반복 저장하지 않고,
+        # 대기 중인 one-shot 이벤트만 이번 waypoint에 사용
         event = str(
-            self.get_parameter(
-                "record_event"
-            ).value
-        )
+            self.pending_event
+        ).strip().upper()
 
         # ---------------------------------------------------------
         # CSV 저장
@@ -450,10 +493,39 @@ class OdomRouteRecorder(Node):
         # 실시간 저장
         self.file.flush()
 
+        # ---------------------------------------------------------
+        # one-shot event 소비 후 자동 NONE 복귀
+        # ---------------------------------------------------------
+        if event != "NONE":
+            self.get_logger().info(
+                f"Route event recorded ONCE: index={self.index} event={event}"
+            )
+
+            self.pending_event = "NONE"
+            self.auto_resetting_event = True
+
+            try:
+                self.set_parameters(
+                    [
+                        Parameter(
+                            "record_event",
+                            Parameter.Type.STRING,
+                            "NONE",
+                        )
+                    ]
+                )
+            finally:
+                self.auto_resetting_event = False
+
+            self.get_logger().info(
+                f"Route event consumed: {event} -> NONE"
+            )
+
         self.last_x = x
         self.last_y = y
 
         self.index += 1
+        self.force_record = False
 
     # =============================================================
     # 종료
