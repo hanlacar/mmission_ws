@@ -36,6 +36,10 @@ TEXT_SUFFIXES = {
 CALIBRATION_PATTERNS = [
     (re.compile(r"(\bsteer_center_adc\s*:\s*)496\b"),
      r"\g<1>474", "steer_center_adc YAML"),
+    (re.compile(r"(\bsteering_center_adc\s*:\s*)496\b"),
+     r"\g<1>474", "steering_center_adc YAML"),
+    (re.compile(r"(\bcenter_adc\s*:\s*)496\b"),
+     r"\g<1>474", "center_adc YAML"),
     (re.compile(r"(declare_parameter\(\s*[\"']steer_center_adc[\"']\s*,\s*)496(\s*\))"),
      r"\g<1>474\g<2>", "steer_center_adc ROS default"),
     (re.compile(r"(\bSTEER_CENTER_ADC\s*=\s*)496\b"),
@@ -56,6 +60,8 @@ CALIBRATION_PATTERNS = [
 
 VERIFY_PATTERNS = [
     re.compile(r"\bsteer_center_adc\s*:\s*496\b"),
+    re.compile(r"\bsteering_center_adc\s*:\s*496\b"),
+    re.compile(r"\bcenter_adc\s*:\s*496\b"),
     re.compile(r"declare_parameter\(\s*[\"']steer_center_adc[\"']\s*,\s*496\s*\)"),
     re.compile(r"\bSTEER_CENTER_ADC\s*=\s*496\b"),
     re.compile(r"\bSTEER_CENTER_DEFAULT\s*=\s*496\b"),
